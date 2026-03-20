@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>BaezPOS - Historial de Ventas</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <style>
+    :root { --sidebar-width: 250px; --primary-blue: #0d6efd; }
+    body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+
+    #sidebar {
+      width: var(--sidebar-width);
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 1000;
+      background-color: #212529;
+    }
+
+    .main-content {
+      margin-left: var(--sidebar-width);
+      padding: 30px;
+      width: calc(100% - var(--sidebar-width));
+    }
+
+    .hover-menu {
+        border-left: 4px solid transparent;
+        transition: 0.2s;
+    }
+
+    .hover-menu:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      border-left: 4px solid var(--primary-blue) !important;
+    }
+
+    .nav-link.active-page {
+      background-color: var(--primary-blue);
+      font-weight: bold;
+      color: white !important;
+    }
+
+    .card { border-radius: 12px; border: none; }
+    .table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d; }
+    .badge-method { font-size: 11px; font-weight: 700; }
+    .dashed { border-top: 2px dashed #dee2e6; opacity: 1; }
+  </style>
+</head>
+<body>
+
+<nav id="sidebar" class="bg-dark vh-100 shadow">
+  <div class="p-4 text-center">
+    <h3 class="text-white fw-bold">BaezPOS</h3>
+    <hr class="text-white">
+  </div>
+  <div class="nav flex-column px-3 gap-1">
+    <a href="dashboard.html" class="nav-link text-white rounded p-2">
+      <i class="bi bi-speedometer2 me-2"></i> Dashboard
+    </a>
+    <a href="productos.html" class="nav-link text-white rounded p-2">
+      <i class="bi bi-box-seam me-2"></i> Productos
+    </a>
+    <a href="ventas.html" class="nav-link text-white rounded p-2">
+      <i class="bi bi-cart me-2"></i> Punto de Venta
+    </a>
+    <a href="clientes.html" class="nav-link text-white rounded p-2">
+      <i class="bi bi-people me-2"></i> Clientes (Libreta)
+    </a>
+    <a href="perfil.html" class="nav-link text-white rounded p-2 active">
+      <i class="bi bi-shop me-2"></i> Mi Negocio
+    </a>
+    <a href="#" class="nav-link text-danger mt-5 p-2" onclick="cerrarSesion()">
+      <i class="bi bi-box-arrow-left me-2"></i> Salir
+    </a>
+  </div>
+</nav>
+
+<div class="main-content">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2 class="fw-bold text-dark mb-0"><i class="bi bi-clock-history text-primary"></i> Historial de Ventas</h2>
+      <p class="text-muted small">Auditoría de transacciones y control de métodos de pago.</p>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-success border shadow-sm px-3" onclick="exportarExcelPro()">
+        <i class="bi bi-file-earmark-excel"></i> Excel Completo
+      </button>
+      <button class="btn btn-danger border shadow-sm px-3" onclick="exportarPDF()">
+        <i class="bi bi-file-earmark-pdf"></i> Reporte PDF
+      </button>
+      <button class="btn btn-white border shadow-sm px-3" onclick="cargarVentas()">
+        <i class="bi bi-arrow-clockwise"></i> Refrescar
+      </button>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card shadow-sm p-3 text-center border-start border-4 border-success">
+        <small class="text-muted fw-bold">HOY EFECTIVO</small>
+        <h4 class="mb-0 fw-bold text-success" id="resumenEfectivo">$0.00</h4>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card shadow-sm p-3 text-center border-start border-4 border-primary">
+        <small class="text-muted fw-bold">HOY TRANSF/QR</small>
+        <h4 class="mb-0 fw-bold text-primary" id="resumenTransf">$0.00</h4>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 mb-3">
+    <input type="date" id="fechaDesde" class="form-control form-control-sm">
+    <input type="date" id="fechaHasta" class="form-control form-control-sm">
+    <button class="btn btn-primary btn-sm" onclick="cargarVentasFiltradas()">
+      <i class="bi bi-filter"></i> Filtrar
+    </button>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive" style="min-height: 400px;">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="bg-light">
+          <tr>
+            <th class="ps-4">ID</th>
+            <th>Fecha y Hora</th>
+            <th>Cajero</th>
+            <th>Método Pago</th>
+            <th class="text-end">Descuento</th>
+            <th class="text-end">Total Final</th>
+            <th class="text-center">Acciones</th>
+          </tr>
+          </thead>
+          <tbody id="listaVentas" style="font-size: 14px;">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalDetalleVenta" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title fw-bold">Comprobante #<span id="txtIdVenta"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="contenedorItems"></div>
+        <hr class="dashed">
+        <div class="d-flex justify-content-between mb-1">
+          <span class="text-muted small">Subtotal:</span>
+          <span id="txtSubtotalModal" class="fw-bold"></span>
+        </div>
+        <div class="d-flex justify-content-between mb-1 text-danger small">
+          <span>Descuento aplicado:</span>
+          <span id="txtDescuentoModal"></span>
+        </div>
+        <div class="d-flex justify-content-between mt-2 pt-2 border-top border-dark">
+          <span class="h5 fw-bold text-dark">TOTAL PAGADO:</span>
+          <span id="txtTotalModal" class="h5 fw-bold text-primary"></span>
+        </div>
+        <div class="text-center mt-3">
+          <span class="badge bg-light text-dark border w-100 py-2" id="txtMetodoModal"></span>
+        </div>
+      </div>
+      <div class="modal-footer bg-light">
+        <button class="btn btn-dark w-100" onclick="reimprimirTicket()">
+          <i class="bi bi-printer me-2"></i> Reimprimir Ticket
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+<script src="historial.js"></script>
+</body>
+</html>
