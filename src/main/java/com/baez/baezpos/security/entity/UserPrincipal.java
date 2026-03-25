@@ -16,20 +16,24 @@ public class UserPrincipal implements UserDetails {
     private Long id;
     private String email;
     private String password;
-    private Long companyId; // <--- EL TESORO: Aquí guardamos el tenantId
+    private Long companyId;
+    private boolean enabled; // <--- 1. AGREGAMOS ESTO
     private Collection<? extends GrantedAuthority> authorities;
 
-    // En UserPrincipal.java
     public static UserPrincipal create(User user) {
+        // Manejo de seguridad por si es Alexander (Super Admin no tiene empresa)
+        Long compId = (user.getCompany() != null) ? user.getCompany().getId() : null;
+
         return new UserPrincipal(
                 user.getId(),
                 user.getEmail(),
                 user.getPassword(),
-                user.getCompany().getId(), // Esto es clave para el Multi-tenant
-                // IMPORTANTE: Asegurate de concatenar "ROLE_"
+                compId,
+                user.getActive(), // <--- 2. PASAMOS EL ESTADO REAL AQUÍ
                 Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
         );
     }
+
 
     @Override
     public String getUsername() { return email; }
@@ -42,5 +46,7 @@ public class UserPrincipal implements UserDetails {
     @Override
     public boolean isCredentialsNonExpired() { return true; }
     @Override
-    public boolean isEnabled() { return true; }
+    public boolean isEnabled() {
+        return enabled; // <--- 3. AHORA DEVUELVE EL VALOR REAL DE LA DB
+    }
 }

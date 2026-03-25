@@ -26,20 +26,12 @@ public class SaleController {
 
     private final SaleService saleService;
 
-    private Long getTenantId() {
-        return 1L;
-    }
-    private Long getUserId() {
-        return 1L;
-    } // Asegúrate que este ID existe en tu tabla users
-
     @PostMapping
     public ResponseEntity<SaleResponseDTO> create(@RequestBody SaleRequestDTO saleDTO) {
-        // Extraemos los datos del Token JWT de forma segura
         Long companyId = SecurityUtils.getCurrentCompanyId();
         Long userId = SecurityUtils.getCurrentUserId();
 
-        log.info("REST: Intento de venta - Empresa: {}, Usuario: {}", companyId, userId);
+        log.info("REST: Creando venta - Empresa: {}, Usuario: {}", companyId, userId);
 
         return new ResponseEntity<>(
                 saleService.createSale(saleDTO, companyId, userId),
@@ -54,31 +46,40 @@ public class SaleController {
 
         Long companyId = SecurityUtils.getCurrentCompanyId();
 
-        // Si vienen fechas, filtramos. Si no, traemos el historial general.
-        if (desde != null && hasta != null) {
-            log.info("Filtrando ventas para empresa {} entre {} y {}", companyId, desde, hasta);
-            return ResponseEntity.ok(saleService.getSalesByDateRange(desde, hasta, companyId));
+        // LOGS PARA DEPURAR (Miralos en la consola de IntelliJ)
+        log.info("Historial solicitado - Empresa: {}, Desde: {}, Hasta: {}", companyId, desde, hasta);
+
+        // Si el frontend no manda fechas, buscamos las de HOY por defecto
+        if (desde == null || hasta == null) {
+            desde = LocalDate.now();
+            hasta = LocalDate.now();
         }
 
-        return ResponseEntity.ok(saleService.getAllSalesByCompany(companyId));
+        List<SaleResponseDTO> ventas = saleService.getSalesByDateRange(desde, hasta, companyId);
+        log.info("Ventas encontradas: {}", ventas.size());
+
+        return ResponseEntity.ok(ventas);
     }
 
+    // --- CORREGIDO: Ahora usa el ID del Token ---
     @GetMapping("/report/box")
     public ResponseEntity<BoxReportDTO> getBoxReport() {
-        return ResponseEntity.ok(saleService.getBoxReport(getTenantId()));
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        return ResponseEntity.ok(saleService.getBoxReport(companyId));
     }
 
-    // NUEVO: Endpoint para el Gráfico (Histórico 7 días)
+    // --- CORREGIDO: Ahora usa el ID del Token ---
     @GetMapping("/report/chart")
     public ResponseEntity<List<ChartDataDTO>> getSalesChartData() {
-        return ResponseEntity.ok(saleService.getSalesChartData(getTenantId()));
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        return ResponseEntity.ok(saleService.getSalesChartData(companyId));
     }
 
+    // --- CORREGIDO: Ahora usa el ID del Token ---
     @PutMapping("/{id}/cancel")
     public ResponseEntity<Void> cancelSale(@PathVariable Long id) {
-        // Usamos el service que ya tiene la lógica de devolver stock
-        saleService.cancelSale(id, getTenantId());
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        saleService.cancelSale(id, companyId);
         return ResponseEntity.noContent().build();
     }
-
 }

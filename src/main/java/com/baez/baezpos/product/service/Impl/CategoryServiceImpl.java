@@ -23,7 +23,12 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public CategoryResponseDTO createCategory(CategoryRequestDTO dto, Long companyId) {
-        // 1. Buscamos si el nombre ya existe (sin importar el estado de 'active')
+        // CORRECCIÓN: Validación preventiva para evitar error de Hibernate
+        if (companyId == null) {
+            throw new IllegalArgumentException("No se puede crear categoría: El ID de la empresa es nulo. Verifique su sesión.");
+        }
+
+        // 1. Buscamos si el nombre ya existe
         Optional<Category> existing = categoryRepository.findByNameAndCompanyId(dto.name(), companyId);
 
         if (existing.isPresent()) {
@@ -31,16 +36,15 @@ public class CategoryServiceImpl implements CategoryService {
             if (category.getActive()) {
                 throw new RuntimeException("Ya existe una categoría activa con ese nombre");
             } else {
-                // REANIMACIÓN: Existe pero estaba inactiva
                 category.setActive(true);
-                category.setDescription(dto.description()); // Actualizamos por si cambió
+                category.setDescription(dto.description());
                 return mapToResponseDTO(categoryRepository.save(category));
             }
         }
 
-        // 2. Creación normal si no existía nada
+        // 2. Creación normal
         var company = companyRepository.findById(companyId)
-                .orElseThrow(() -> new RuntimeException("Empresa no encontrada"));
+                .orElseThrow(() -> new RuntimeException("Empresa no encontrada con ID: " + companyId));
 
         Category newCategory = Category.builder()
                 .name(dto.name())
@@ -54,7 +58,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     public List<CategoryResponseDTO> getAllCategories(Long companyId) {
-        // IMPORTANTE: Aquí usamos el método filtrado para no ensuciar el frontend
+        if (companyId == null) return List.of();
         return categoryRepository.findByCompanyIdAndActiveTrue(companyId).stream()
                 .map(this::mapToResponseDTO)
                 .toList();
@@ -63,7 +67,7 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public CategoryResponseDTO getCategoryById(Long id, Long companyId) {
         return categoryRepository.findById(id)
-                .filter(c -> c.getCompany().getId().equals(companyId))
+                .filter(c -> c.getCompany() != null && c.getCompany().getId().equals(companyId))
                 .map(this::mapToResponseDTO)
                 .orElseThrow(() -> new RuntimeException("Categoría no encontrada"));
     }
@@ -72,7 +76,7 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponseDTO updateCategory(Long id, CategoryRequestDTO dto, Long companyId) {
         Category category = categoryRepository.findById(id)
-                .filter(c -> c.getCompany().getId().equals(companyId))
+                .filter(c -> c.getCompany() != null && c.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Categoría no encontrada"));
 
         category.setName(dto.name());
@@ -85,21 +89,15 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public void deleteCategory(Long id, Long companyId) {
         Category category = categoryRepository.findById(id)
-                .filter(c -> c.getCompany().getId().equals(companyId))
+                .filter(c -> c.getCompany() != null && c.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Categoría no encontrada"));
 
-        // El @SQLDelete se encargará del borrado lógico
         categoryRepository.delete(category);
     }
 
-    private CategoryResponseDTO mapToResponseDTO(Category c) {
-        return new CategoryResponseDTO(c.getId(), c.getName(), c.getDescription());
-    }
-
-    // CategoryServiceImpl.java
-
     @Override
     public List<CategoryResponseDTO> getDeletedCategories(Long companyId) {
+        if (companyId == null) return List.of();
         return categoryRepository.findByCompanyIdAndActiveFalse(companyId).stream()
                 .map(this::mapToResponseDTO)
                 .toList();
@@ -109,10 +107,14 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponseDTO activateCategory(Long id, Long companyId) {
         Category category = categoryRepository.findById(id)
-                .filter(c -> c.getCompany().getId().equals(companyId))
+                .filter(c -> c.getCompany() != null && c.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Categoría no encontrada"));
 
         category.setActive(true);
         return mapToResponseDTO(categoryRepository.save(category));
+    }
+
+    private CategoryResponseDTO mapToResponseDTO(Category c) {
+        return new CategoryResponseDTO(c.getId(), c.getName(), c.getDescription());
     }
 }

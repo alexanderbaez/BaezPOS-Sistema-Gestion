@@ -4,17 +4,19 @@ import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.SQLDelete;
-import org.hibernate.annotations.SQLRestriction;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.Collection;
+import java.util.List;
 
 @Entity
 @Table(name = "users")
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
 @Builder
-@SQLDelete(sql = "UPDATE users SET active = false WHERE id = ?")
-@SQLRestriction("active = true")
-public class User extends BaseEntity {
+public class User extends BaseEntity implements UserDetails { // <--- CLAVE 1: Implementar UserDetails
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -36,7 +38,31 @@ public class User extends BaseEntity {
     @Column(nullable = false)
     private Boolean active = true;
 
+    // CLAVE 2: Alexander no tiene empresa, permitimos NULL aquí
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
+    @JoinColumn(name = "company_id", nullable = true)
     private Company company;
+
+    // --- MÉTODOS OBLIGATORIOS PARA QUE SPRING TE DEJE PASAR ---
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        // Le agregamos el prefijo ROLE_ que Spring exige por defecto
+        return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
+    }
+
+    @Override
+    public String getUsername() { return email; }
+
+    @Override
+    public boolean isAccountNonExpired() { return true; }
+
+    @Override
+    public boolean isAccountNonLocked() { return true; }
+
+    @Override
+    public boolean isCredentialsNonExpired() { return true; }
+
+    @Override
+    public boolean isEnabled() { return active; }
 }

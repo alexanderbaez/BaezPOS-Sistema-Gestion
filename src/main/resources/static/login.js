@@ -1,7 +1,6 @@
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
 
-    // Referencias a elementos UI
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
     const btn = document.getElementById('btnIngresar');
@@ -9,10 +8,8 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
     const loader = document.getElementById('loader');
     const messageContainer = document.getElementById('messageContainer');
 
-    // Limpiar alertas previas
+    // Limpiar UI
     messageContainer.innerHTML = '';
-
-    // Estado: Cargando
     btnText.classList.add('d-none');
     loader.classList.remove('d-none');
     btn.classList.add('disabled');
@@ -27,43 +24,67 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
         if (response.ok) {
             const data = await response.json();
 
-            // 1. Persistencia de Sesión
+            // 1. Extraemos y limpiamos el rol
+            const rawRole = data.role || "";
+            const cleanRole = rawRole.replace('ROLE_', '');
+
+            // 2. Guardamos en localStorage (Limpiamos antes para evitar basura de otras sesiones)
+            localStorage.clear();
             localStorage.setItem('baezpos_token', data.token);
-            localStorage.setItem('baezpos_user_name', data.userName || "Alexander");
-            localStorage.setItem('baezpos_user_role', data.role || "ADMIN");
+            localStorage.setItem('baezpos_user_role', cleanRole);
+            localStorage.setItem('baezpos_user_name', data.name || "Usuario");
+            // Guardamos el companyId para el chequeo de licencia posterior
+            localStorage.setItem('baezpos_company_id', data.companyId);
 
-            // 2. Feedback de Éxito
-            messageContainer.innerHTML = `
-                <div class="alert alert-success custom-alert d-flex align-items-center mb-4 shadow-sm" role="alert">
-                    <i class="bi bi-check-circle-fill me-2 fs-5"></i>
-                    <div>¡Bienvenido, ${data.userName || "Alexander"}! Accediendo...</div>
-                </div>
-            `;
+            messageContainer.innerHTML = `<div class="alert alert-success">¡Bienvenido! Redirigiendo...</div>`;
 
-            // 3. Redirección suave
+            // 3. Redirección según el rol
             setTimeout(() => {
-                window.location.href = 'dashboard.html';
-            }, 1000);
+                if (cleanRole === 'SUPER_ADMIN') {
+                    window.location.href = 'admin-maestro.html';
+                } else if (cleanRole === 'ADMIN') {
+                    window.location.href = 'dashboard.html';
+                } else {
+                    window.location.href = 'ventas.html';
+                }
+            }, 800);
 
         } else {
-            // Error de Credenciales
-            messageContainer.innerHTML = `
-                <div class="alert alert-danger custom-alert d-flex align-items-center mb-4 shadow-sm" role="alert">
-                    <i class="bi bi-exclamation-octagon-fill me-2 fs-5"></i>
-                    <div>Acceso denegado. Verifica tus datos.</div>
-                </div>
-            `;
+            // --- BLOQUE DE DETECCIÓN DE ERRORES DEL SERVIDOR ---
+            const errorData = await response.json().catch(() => ({}));
+            // Buscamos el mensaje en 'message' o 'error'
+            const errorMessage = (errorData.message || errorData.error || "").toUpperCase();
+
+            // --- EL CANDADO DE ALEXANDER ---
+            // Si el mensaje dice SUSPENDIDA o VENCIDA, o si el servidor tiró un 403 (Forbidden)
+            if (errorMessage.includes("CUENTA_SUSPENDIDA") ||
+                errorMessage.includes("SUSCRIPCION_VENCIDA") ||
+                response.status === 403) {
+
+                Swal.fire({
+                    title: '¡SISTEMA SUSPENDIDO!',
+                    text: 'Tu suscripción ha vencido o tu cuenta está inactiva. Contacta a Alexander Báez para habilitar el servicio.',
+                    icon: 'error',
+                    showCancelButton: true,
+                    confirmButtonColor: '#25D366',
+                    confirmButtonText: '<i class="bi bi-whatsapp"></i> Hablar con Alexander',
+                    cancelButtonText: 'Cerrar',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.open('https://wa.me/5492645468570?text=Hola Alexander, mi sistema aparece como suspendido. Necesito habilitarlo.');
+                    }
+                });
+            } else {
+                // Error común de login
+                messageContainer.innerHTML = `<div class="alert alert-danger">Usuario o contraseña incorrectos</div>`;
+            }
             resetButton();
         }
     } catch (error) {
-        // Error de Conexión (Backend apagado)
-        console.error("Error de red:", error);
-        messageContainer.innerHTML = `
-            <div class="alert alert-warning custom-alert d-flex align-items-center mb-4 shadow-sm" role="alert">
-                <i class="bi bi-wifi-off me-2 fs-5"></i>
-                <div>No se pudo conectar con el servidor central.</div>
-            </div>
-        `;
+        console.error("Error de conexión:", error);
+        messageContainer.innerHTML = `<div class="alert alert-warning">No se pudo conectar con el servidor. Revisá tu conexión.</div>`;
         resetButton();
     }
 });

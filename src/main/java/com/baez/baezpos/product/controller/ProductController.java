@@ -3,12 +3,10 @@ package com.baez.baezpos.product.controller;
 import com.baez.baezpos.product.dto.ProductRequestDTO;
 import com.baez.baezpos.product.dto.ProductResponseDTO;
 import com.baez.baezpos.product.service.service.ProductService;
-import com.baez.baezpos.security.entity.UserPrincipal;
 import com.baez.baezpos.security.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,23 +19,27 @@ public class ProductController {
 
     private final ProductService productService;
 
+    /**
+     * Obtenemos el ID de la empresa de forma segura usando SecurityUtils.
+     * Esto evita el error de "Tenant no identificado" al estandarizar la forma de obtener al usuario.
+     */
     private Long getTenantId() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (principal instanceof UserPrincipal user) {
-            return user.getCompanyId();
+        try {
+            return SecurityUtils.getCurrentCompanyId();
+        } catch (Exception e) {
+            // Si llega acá es porque el token no es válido o no tiene la info de la empresa
+            throw new RuntimeException("Error de autenticación: Empresa no identificada");
         }
-        throw new RuntimeException("Error de autenticación: Tenant no encontrado");
-    }
-
-    @PostMapping
-    public ResponseEntity<ProductResponseDTO> create(@RequestBody ProductRequestDTO dto) {
-        // ¡Mucho más limpio! Usamos la utilidad que ya conoce al UserPrincipal
-        return new ResponseEntity<>(productService.createProduct(dto, SecurityUtils.getCurrentCompanyId()), HttpStatus.CREATED);
     }
 
     @GetMapping
     public ResponseEntity<List<ProductResponseDTO>> getAll() {
         return ResponseEntity.ok(productService.getAllProducts(getTenantId()));
+    }
+
+    @PostMapping
+    public ResponseEntity<ProductResponseDTO> create(@RequestBody ProductRequestDTO dto) {
+        return new ResponseEntity<>(productService.createProduct(dto, getTenantId()), HttpStatus.CREATED);
     }
 
     @GetMapping("/{id}")
@@ -55,8 +57,6 @@ public class ProductController {
         productService.deleteProduct(id, getTenantId());
         return ResponseEntity.noContent().build();
     }
-
-    // ProductController.java
 
     @GetMapping("/deleted")
     public ResponseEntity<List<ProductResponseDTO>> getDeleted() {

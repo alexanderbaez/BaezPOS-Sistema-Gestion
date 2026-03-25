@@ -1,63 +1,57 @@
 package com.baez.baezpos.company.controller;
 
 import com.baez.baezpos.company.dto.CompanyDTO;
+import com.baez.baezpos.user.dto.UserDTO;
 import com.baez.baezpos.company.service.CompanyService.CompanyService;
-import com.baez.baezpos.security.entity.UserPrincipal;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
+import java.util.Map;
 
 @RestController
-@RequestMapping("/api/companies")
+@RequestMapping("/api/v1/admin/my-company")
 @RequiredArgsConstructor
-@Slf4j
 @CrossOrigin(origins = "*")
 public class CompanyController {
 
     private final CompanyService companyService;
 
-    @GetMapping
-    public ResponseEntity<List<CompanyDTO>> getAll() {
-        return ResponseEntity.ok(companyService.getAllCompanies());
+    // --- PERFIL DE EMPRESA ---
+    @GetMapping("/profile")
+    public ResponseEntity<CompanyDTO> getMyData() {
+        return ResponseEntity.ok(companyService.getAuthenticatedCompany());
     }
 
-    @GetMapping("/{id}")
-    public ResponseEntity<CompanyDTO> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(companyService.getCompanyById(id));
+    @PutMapping("/profile")
+    public ResponseEntity<CompanyDTO> updateMyBusiness(@RequestBody CompanyDTO dto) {
+        return ResponseEntity.ok(companyService.updateAuthenticatedCompany(dto));
     }
 
-    @PostMapping
-    public ResponseEntity<CompanyDTO> create(@RequestBody CompanyDTO companyDTO) {
-        return new ResponseEntity<>(companyService.createCompany(companyDTO), HttpStatus.CREATED);
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getStatus() {
+        return ResponseEntity.ok(companyService.verificarEstadoSuscripcionAutenticada());
     }
 
-    @PutMapping("/{id}")
-    public ResponseEntity<CompanyDTO> update(@PathVariable Long id, @RequestBody CompanyDTO companyDTO) {
-        return ResponseEntity.ok(companyService.updateCompany(id, companyDTO));
+    // --- GESTIÓN DE CAJEROS ---
+    @GetMapping("/employees")
+    public ResponseEntity<List<UserDTO>> getAllEmployees() {
+        return ResponseEntity.ok(companyService.getMyEmployees());
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        companyService.deleteCompany(id);
+    @PostMapping("/employees")
+    public ResponseEntity<UserDTO> createEmployee(@RequestBody UserDTO dto) {
+        return ResponseEntity.ok(companyService.createEmployee(dto));
+    }
+
+    @PutMapping("/employees/{id}")
+    public ResponseEntity<UserDTO> updateEmployee(@PathVariable Long id, @RequestBody UserDTO dto) {
+        return ResponseEntity.ok(companyService.updateEmployee(id, dto));
+    }
+
+    @DeleteMapping("/employees/{id}")
+    public ResponseEntity<Void> deleteEmployee(@PathVariable Long id) {
+        companyService.deleteEmployee(id);
         return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/me")
-    public ResponseEntity<CompanyDTO> getMyCompany(@AuthenticationPrincipal UserPrincipal user) {
-        // Usamos el ID de empresa que viene en el token del usuario logueado
-        return ResponseEntity.ok(companyService.getCompanyById(user.getCompanyId()));
-    }
-
-    @PutMapping("/me")
-    public ResponseEntity<CompanyDTO> updateMyCompany(
-            @AuthenticationPrincipal UserPrincipal user,
-            @RequestBody CompanyDTO dto) {
-        // Solo actualiza la empresa del usuario actual
-        return ResponseEntity.ok(companyService.updateCompany(user.getCompanyId(), dto));
     }
 }

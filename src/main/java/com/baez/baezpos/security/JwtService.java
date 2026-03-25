@@ -11,14 +11,13 @@ import org.springframework.stereotype.Service;
 import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
 @Service
 public class JwtService {
 
-    // Esta es una clave de prueba de 256 bits en hexadecimal.
-    // En producción esto debería ir en un archivo de configuración secreto.
     private static final String SECRET_KEY = "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970";
 
     public String extractUsername(String token) {
@@ -32,15 +31,27 @@ public class JwtService {
 
     public String generateToken(User user) {
         Map<String, Object> claims = new HashMap<>();
-        // Agregamos el companyId al token para que sea un verdadero SaaS
-        claims.put("companyId", user.getCompany().getId());
+
+        // 1. Manejo seguro para Alexander (que no tiene empresa todavía)
+        if (user.getCompany() != null) {
+            claims.put("companyId", user.getCompany().getId());
+        } else {
+            claims.put("companyId", 0); // 0 significa "Administrador Global"
+        }
+
+        // 2. REGLA DE ORO PARA SPRING SECURITY:
+        // Los permisos deben ir en una lista llamada "authorities"
+        String finalRole = "ROLE_" + user.getRole().name();
+        claims.put("authorities", List.of(finalRole));
+
+        // 3. Clave para tu JS
         claims.put("role", user.getRole().name());
 
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(user.getEmail())
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24)) // Expira en 24hs
+                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24))
                 .signWith(getSignInKey(), SignatureAlgorithm.HS256)
                 .compact();
     }

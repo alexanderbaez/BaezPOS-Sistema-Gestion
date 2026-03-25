@@ -1,9 +1,18 @@
 const API_BASE = 'http://localhost:8080/api/v1/sales';
 const API_PRODUCTS = 'http://localhost:8080/api/v1/products';
-const API_CUSTOMERS = 'http://localhost:8080/api/v1/customers'; // <--- AGREGADA AQUÍ
+const API_CUSTOMERS = 'http://localhost:8080/api/v1/customers';
 const token = localStorage.getItem('baezpos_token');
+const companyId = localStorage.getItem('baezpos_company_id');
 
-// RECURSOS DE AUDIO PARA FEEDBACK PROFESIONAL
+// --- CORRECCIÓN AQUÍ: Solo una vez y con /status al final ---
+const API_STATUS = 'http://localhost:8080/api/v1/admin/my-company/status';
+
+// --- EL CANDADO DE ALEXANDER ---
+let sistemaBloqueado = false;
+const MI_WHATSAPP = "5492645468570";
+let mensajeTicketServidor = "";
+
+// RECURSOS DE AUDIO
 const sndSuccess = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
 const sndError = new Audio('https://assets.mixkit.co/active_storage/sfx/2573/2573-preview.mp3');
 
@@ -12,14 +21,15 @@ let CARRITO = [];
 let METODO_PAGO = 'EFECTIVO';
 let SUBTOTAL_VENTA = 0;
 let DESCUENTO_FINAL_PESOS = 0;
-let clienteSeleccionado = null; // <--- AGREGADA AQUÍ
-
+let clienteSeleccionado = null;
 let indiceSeleccionado = -1;
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!token) { window.location.href = 'login.html'; return; }
-
+    await chequearEstadoLicencia();
     await cargarProductos();
+
 
     const buscador = document.getElementById('buscadorVenta');
     const sugerenciasDiv = document.getElementById('listaSugerencias');
@@ -128,6 +138,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
+function cargarDatosPerfil() {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const nombreUsuario = payload.sub || "Usuario";
+
+        // 1. Seteamos el nombre en el texto
+        document.getElementById('userName').innerText = nombreUsuario;
+
+        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
+        const elInitial = document.getElementById('userInitial');
+        if (elInitial) {
+            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
+        }
+
+        // 3. Seteamos el nombre de la empresa
+        if(payload.companyName) {
+            document.getElementById('companyName').innerText = payload.companyName;
+        }
+
+    } catch (e) {
+        console.error("Error perfil:", e);
+    }
+}
+
 function actualizarFocoSugerencia(items) {
     items.forEach((item, index) => {
         if (index === indiceSeleccionado) {
@@ -138,87 +172,103 @@ function actualizarFocoSugerencia(items) {
         }
     });
 }
+// 1. FUNCIÓN DE CARGA (CORREGIDA)
 async function cargarProductos() {
     try {
         const res = await fetch(API_PRODUCTS, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
+        // --- SI EL FILTRO DE JAVA TIRA 403 (CUENTA DESACTIVADA) ---
+        if (res.status === 403) {
+            bloquearSistemaPorFaltaDePago();
+            return;
+        }
+
         if (res.status === 401) {
-            // El token expiró o es inválido
             localStorage.removeItem('baezpos_token');
             window.location.href = 'login.html?error=expired';
             return;
         }
 
+        if (!res.ok) throw new Error("Error al obtener productos");
+
         PRODUCTOS_DB = await res.json();
-        console.log("Productos cargados:", PRODUCTOS_DB.length);
+
     } catch (err) {
         console.error("Error de conexión:", err);
     }
 }
 
-function buscarYAgregar(query) {
+async function buscarYAgregar(query) {
+    console.log("🚀 Función buscarYAgregar iniciada con:", query);
     if (!query) return;
     const term = query.toLowerCase().trim();
 
-    // 1. Buscamos en la base de datos local (ya cargada en PRODUCTOS_DB)
+    // VALIDACIÓN DE SEGURIDAD: ¿Existe la base de datos local?
+    if (typeof PRODUCTOS_DB === 'undefined') {
+        console.error("❌ ERROR: PRODUCTOS_DB no está definida en ventas.js");
+        PRODUCTOS_DB = []; // La creamos vacía para que no rompa el resto
+    }
+
     const p = PRODUCTOS_DB.find(prod =>
         (prod.barcode && prod.barcode.toLowerCase() === term) ||
         (prod.name && prod.name.toLowerCase().includes(term))
     );
 
     if (p) {
-        // --- CASO: EL PRODUCTO EXISTE ---
-        const itemEnCarrito = CARRITO.find(item => item.id === p.id);
-        const cantActual = itemEnCarrito ? itemEnCarrito.cantidad : 0;
-
-        // Validar stock
-        if (p.stock <= cantActual) {
-            if(sndError) sndError.play().catch(()=>{});
-            Swal.fire({ icon: 'warning', title: 'Sin Stock', text: `Solo quedan ${p.stock} unidades.`, toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
-            return;
-        }
-
-        if(sndSuccess) sndSuccess.play().catch(()=>{});
-
-        if (itemEnCarrito) {
-            itemEnCarrito.cantidad++;
-        } else {
-            // SI ES LA PRIMERA VEZ QUE LO AGREGAMOS EN ESTA VENTA:
-            CARRITO.push({
-                id: p.id,
-                name: p.name,
-                price: p.price,
-                barcode: p.barcode,
-                cantidad: 1
-            });
-        }
-        renderizarCarrito();
-
+        console.log("✅ Producto encontrado localmente");
+        seleccionarProducto(p);
     } else {
-        // --- CASO: EL PRODUCTO NO EXISTE EN LA DB ---
-        if(sndError) sndError.play().catch(()=>{});
+        console.log("🔍 No está en DB local, buscando en API externa...");
 
+        if (/^\d{7,14}$/.test(term)) {
+            try {
+                const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=product_name,product_name_es,brands,quantity`);
+                const data = await response.json();
+                console.log("📦 Respuesta de la API:", data);
+
+                if (data.status === 1 && data.product) {
+                    const nombreAPI = data.product.product_name_es || data.product.product_name || "";
+                    const marcaAPI = data.product.brands || "";
+                    const cantidadAPI = data.product.quantity || "";
+                    const nombreFinalParaEnviar = `${nombreAPI} ${marcaAPI} ${cantidadAPI}`.trim().toUpperCase();
+
+                    Swal.fire({
+                        icon: 'info',
+                        title: '¡Encontrado en la Red!',
+                        html: `<b>${nombreFinalParaEnviar}</b><br><br>¿Cargar al sistema?`,
+                        showCancelButton: true,
+                        confirmButtonText: 'Sí, ir a cargar'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            window.location.href = `productos.html?nuevoCodigo=${term}&nuevoNombre=${encodeURIComponent(nombreFinalParaEnviar)}`;
+                        }
+                    });
+                    return;
+                }
+            } catch (err) {
+                console.error("❌ Error fetch API:", err);
+            }
+        }
+
+        // Si llegó acá es porque no lo encontró en ningún lado
+        console.log("❌ No se encontró en ningún lado, abriendo aviso de carga manual.");
         Swal.fire({
             icon: 'error',
-            title: '¿Producto nuevo?',
-            text: `"${query}" no fue encontrado. ¿Querés cargarlo al sistema?`,
+            title: 'No encontrado',
+            text: `El código ${term} no existe. ¿Cargar manual?`,
             showCancelButton: true,
-            confirmButtonText: 'Sí, cargar ahora',
-            cancelButtonText: 'Cerrar'
+            confirmButtonText: 'Cargar ahora'
         }).then((result) => {
             if (result.isConfirmed) {
-                // Redirigir a productos pasando el código por URL para ganar tiempo
-                window.location.href = `productos.html?nuevoCodigo=${query}`;
+                window.location.href = `productos.html?nuevoCodigo=${term}`;
             }
         });
     }
 
-    // Limpiar input y asegurar foco
     const buscador = document.getElementById('buscadorVenta');
-    buscador.value = '';
-    buscador.focus();
+    if (buscador) { buscador.value = ''; buscador.focus(); }
 }
 
 function renderizarCarrito() {
@@ -288,20 +338,32 @@ function renderizarCarrito() {
 }
 
 function calcularVuelto() {
-    const totalText = document.getElementById('totalVenta').innerText.replace('$', '');
-    const total = parseFloat(totalText) || 0;
+    // 1. Obtenemos el texto del total (ejemplo: "$3.000,00")
+    let totalText = document.getElementById('totalVenta').innerText;
+
+    // 2. LIMPIEZA TOTAL:
+    // Quitamos el "$", quitamos los puntos de miles y cambiamos la coma por punto
+    let totalLimpio = totalText.replace('$', '')     // Quita el signo peso
+                               .replace(/\./g, '')    // Quita los puntos de MILES
+                               .replace(',', '.');    // Cambia la coma decimal por PUNTO
+
+    const total = parseFloat(totalLimpio) || 0;
+
+    // 3. Obtenemos cuánto paga el cliente
     const pagaCon = parseFloat(document.getElementById('pagaCon').value) || 0;
 
+    // 4. Cálculo del vuelto
     const vuelto = pagaCon - total;
     const txtVuelto = document.getElementById('vueltoVenta');
 
     if (txtVuelto) {
-        if (vuelto < 0) {
+        if (vuelto < 0 || pagaCon === 0) {
             txtVuelto.innerText = "$0.00";
             txtVuelto.classList.remove('text-success');
             txtVuelto.classList.add('text-danger');
         } else {
-            txtVuelto.innerText = `$${vuelto.toFixed(2)}`;
+            // Mostramos el vuelto con formato lindo
+            txtVuelto.innerText = `$${vuelto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             txtVuelto.classList.remove('text-danger');
             txtVuelto.classList.add('text-success');
         }
@@ -363,6 +425,13 @@ function cancelarVenta() {
 }
 
 async function finalizarVenta() {
+
+    if (sistemaBloqueado) {
+            mostrarCartelBloqueo();
+            return;
+        }
+
+
     if (CARRITO.length === 0) {
         Swal.fire('Carrito vacío', 'Agrega productos para cobrar', 'info');
         return;
@@ -482,59 +551,67 @@ function imprimirTicket(venta) {
     const ventana = window.open('', 'PRINT', 'height=600,width=400');
     const fechaVenta = venta.saleDate ? new Date(venta.saleDate).toLocaleString() : new Date().toLocaleString();
 
-    // GENERAMOS LA URL DEL QR (Contiene el ID de venta y el total)
+    // GENERAMOS LA URL DEL QR (Contiene el ID de venta y el total para validación)
     const qrData = `Venta:${venta.id}|Total:${venta.total}`;
     const qrUrl = `https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=${encodeURIComponent(qrData)}&choe=UTF-8`;
 
     ventana.document.write(`
         <html>
             <head>
+                <title>Ticket #BT-${venta.id}</title>
                 <style>
-                    body { font-family: 'Courier New', monospace; width: 58mm; font-size: 11px; padding: 5px; margin: 0; }
+                    body { font-family: 'Courier New', monospace; width: 58mm; font-size: 11px; padding: 5px; margin: 0; color: #000; }
                     .text-center { text-align: center; }
                     .line { border-top: 1px dashed black; margin: 5px 0; }
                     .total { font-size: 13px; font-weight: bold; }
                     .qr-container { margin-top: 10px; text-align: center; }
+                    .item-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
                 </style>
             </head>
             <body onload="window.print(); window.close();">
-                <div class="text-center"><strong>${venta.companyName || 'BAEZ POS'}</strong><br>Venta #${venta.id}<br>${fechaVenta}</div>
+                <div class="text-center">
+                    <strong>${venta.companyName || 'BAEZ POS'}</strong><br>
+                    Venta #${venta.id}<br>
+                    ${fechaVenta}
+                </div>
                 <div class="line"></div>
 
                 ${venta.items.map(item => `
-                    <div style="display:flex; justify-content:space-between">
-                        <span style="max-width: 70%;">${item.productName.toUpperCase()}</span>
+                    <div class="item-row">
+                        <span style="max-width: 75%;">${item.productName.toUpperCase()}</span>
                         <span>$${item.subtotal.toFixed(2)}</span>
                     </div>
                 `).join('')}
 
                 <div class="line"></div>
                 ${venta.discount > 0 ? `
-                    <div style="display:flex; justify-content:space-between; color: red;">
+                    <div class="item-row" style="color: #000;">
                         <span>DESCUENTO:</span>
                         <span>-$${venta.discount.toFixed(2)}</span>
                     </div>
                     <div class="line"></div>
                 ` : ''}
 
-                <div class="total" style="display:flex; justify-content:space-between">
+                <div class="total item-row">
                     <span>TOTAL:</span>
                     <span>$${venta.total.toFixed(2)}</span>
                 </div>
                 <div class="line"></div>
 
                 <div class="text-center">
-                    Pago: ${METODO_PAGO}<br>
+                    Pago: ${venta.paymentMethod || 'EFECTIVO'}<br>
                     Atendido por: ${venta.userName || 'Cajero'}
                 </div>
 
                 <div class="qr-container">
-                    <img src="${qrUrl}" alt="QR Venta" style="width: 100px; height: 100px;">
-                    <br><small>Escanee para validar</small>
+                    <img src="${qrUrl}" alt="QR Venta" style="width: 110px; height: 110px;">
+                    <br><small>Comprobante no fiscal</small>
                 </div>
 
                 <div class="line"></div>
-                <div class="text-center">¡GRACIAS POR SU COMPRA!</div>
+                <div class="text-center" style="font-weight: bold; margin-top: 5px;">
+                    ${mensajeTicketServidor ? mensajeTicketServidor.toUpperCase() : '¡GRACIAS POR SU COMPRA!'}
+                </div>
             </body>
         </html>
     `);
@@ -591,43 +668,106 @@ function setMetodo(metodo, el) {
 
 // Función para agregar algo que NO está en la base de datos
 function agregarProductoManual() {
-    // 1. Buscamos dinámicamente el producto que tenga el barcode 'MANUAL'
-    const productoComodin = PRODUCTOS_DB.find(p => p.barcode === 'MANUAL');
+    const productosSueltos = PRODUCTOS_DB.filter(p => parseFloat(p.price) === 0);
 
-    if (!productoComodin) {
-        Swal.fire('Error', 'No se encontró el producto comodín "MANUAL" en la base de datos', 'error');
+    if (productosSueltos.length === 0) {
+        Swal.fire('Atención', 'No hay productos con precio $0.', 'warning');
         return;
     }
 
     Swal.fire({
-        title: 'Carga de Artículo Manual',
+        title: '<i class="bi bi-box-seam me-2"></i>Venta de Sueltos',
         html: `
-            <input id="manualNombre" class="swal2-input" placeholder="Descripción (ej: Pan 1kg)" autofocus>
-            <input id="manualPrecio" type="number" class="swal2-input" placeholder="Precio ($)">
+            <div class="position-relative text-start">
+                <label class="small text-muted mb-1">Buscar producto:</label>
+                <input id="manualNombreBusqueda" class="swal2-input m-0 w-100" placeholder="Ej: Pan, Queso..." autocomplete="off">
+                <div id="sugerenciasSueltos" class="list-group position-absolute w-100 shadow-lg d-none"
+                     style="z-index: 9999; max-height: 200px; overflow-y: auto;">
+                </div>
+            </div>
+
+            <div class="text-start mt-3">
+                <label class="small text-muted mb-1">Monto total ($):</label>
+                <input id="manualPrecio" type="number" class="swal2-input m-0 w-100" placeholder="0.00">
+            </div>
         `,
+        showCancelButton: true,
+        confirmButtonText: 'Agregar',
+        didOpen: () => {
+            const inputBusqueda = document.getElementById('manualNombreBusqueda');
+            const inputPrecio = document.getElementById('manualPrecio');
+            const contenedorSugerencias = document.getElementById('sugerenciasSueltos');
+
+            inputBusqueda.focus();
+
+            inputBusqueda.addEventListener('input', () => {
+                const search = inputBusqueda.value.toUpperCase();
+                contenedorSugerencias.innerHTML = '';
+
+                if (search.length > 0) {
+                    const filtrados = productosSueltos.filter(p => p.name.toUpperCase().includes(search));
+
+                    if (filtrados.length > 0) {
+                        contenedorSugerencias.classList.remove('d-none');
+                        filtrados.forEach(p => {
+                            const btn = document.createElement('button');
+                            btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2';
+                            btn.style.fontSize = '0.9rem';
+                            btn.innerHTML = `
+                                <span><i class="bi bi-tag-fill me-2 text-primary"></i>${p.name.toUpperCase()}</span>
+                                <span class="badge bg-light text-dark border">${p.categoryName || 'Suelto'}</span>
+                            `;
+                            btn.onclick = () => {
+                                inputBusqueda.value = p.name.toUpperCase();
+                                contenedorSugerencias.classList.add('d-none');
+                                inputPrecio.focus(); // Salto automático al precio
+                            };
+                            contenedorSugerencias.appendChild(btn);
+                        });
+                    } else {
+                        contenedorSugerencias.classList.add('d-none');
+                    }
+                } else {
+                    contenedorSugerencias.classList.add('d-none');
+                }
+            });
+
+            // Cerrar sugerencias si hace clic afuera
+            document.addEventListener('click', (e) => {
+                if (e.target !== inputBusqueda) contenedorSugerencias.classList.add('d-none');
+            });
+
+            inputPrecio.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') Swal.clickConfirm();
+            });
+        },
         preConfirm: () => {
-            const nombre = document.getElementById('manualNombre').value;
+            const nombre = document.getElementById('manualNombreBusqueda').value.toUpperCase();
             const precio = parseFloat(document.getElementById('manualPrecio').value);
-            if (!nombre || isNaN(precio) || precio <= 0) {
-                Swal.showValidationMessage('Completá nombre y precio válido');
-                return false;
-            }
-            return { name: nombre, price: precio };
+            const pEncontrado = productosSueltos.find(p => p.name.toUpperCase() === nombre);
+
+            if (!nombre) return Swal.showValidationMessage('Escribí o seleccioná un producto');
+            if (isNaN(precio) || precio <= 0) return Swal.showValidationMessage('Ingresá un monto válido');
+
+            const comodin = PRODUCTOS_DB.find(p => p.barcode === 'MANUAL');
+
+            return {
+                id: pEncontrado ? pEncontrado.id : (comodin ? comodin.id : 0),
+                name: nombre,
+                price: precio
+            };
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            // 2. Usamos el ID real que encontramos en el paso 1
             CARRITO.push({
-                id: productoComodin.id, // <--- DINÁMICO: Funciona si tiene 3 o 10.000 productos
-                name: `MANUAL: ${result.value.name.toUpperCase()}`,
+                id: result.value.id,
+                name: result.value.name,
                 price: result.value.price,
-                barcode: 'MANUAL',
+                barcode: 'SUELTO',
                 cantidad: 1
             });
-
             renderizarCarrito();
             if(window.sndSuccess) window.sndSuccess.play().catch(()=>{});
-            setTimeout(() => document.getElementById('buscadorVenta').focus(), 100);
         }
     });
 }
@@ -670,6 +810,9 @@ function renderizarSugerencias(productos) {
  * Agrega el producto seleccionado al carrito y limpia la interfaz de búsqueda
  */
 function seleccionarProducto(p) {
+
+   if (sistemaBloqueado) return;
+
     const itemEnCarrito = CARRITO.find(item => item.id === p.id);
     const cantActual = itemEnCarrito ? itemEnCarrito.cantidad : 0;
 
@@ -713,7 +856,6 @@ function seleccionarProducto(p) {
     // Devolvemos el foco al buscador para la siguiente venta/escaneo
     setTimeout(() => buscador.focus(), 50);
 }
-
 // Función nueva para elegir el cliente de la lista
 function seleccionarCliente(c) {
     clienteSeleccionado = c;
@@ -724,11 +866,91 @@ function seleccionarCliente(c) {
     document.getElementById('sugerenciasClientes').style.display = 'none';
     document.getElementById('buscarClientePos').value = '';
 
+    // Dentro del buscador de clientes:
+    const colorSaldo = c.currentBalance >= c.creditLimit ? 'text-danger' : 'text-success';
+    sugCli.innerHTML = filtrados.map(c => `
+        <button ...>
+            <span>${c.name}</span>
+            <span class="${colorSaldo}">$${c.currentBalance.toFixed(2)}</span>
+        </button>
+    `).join('');
+
     // OPCIONAL: Devolver el foco al buscador de productos para seguir la venta
     document.getElementById('buscadorVenta').focus();
 }
 
-function cerrarSesion() {
-    localStorage.clear();
-    window.location.href = 'login.html';
+// EL GUARDIÁN QUE PREGUNTA AL SERVIDOR
+async function chequearEstadoLicencia() {
+    console.log("🔍 El Guardián de Alexander está preguntando al servidor...");
+    if (sistemaBloqueado) return;
+
+    try {
+        const res = await fetch('http://localhost:8080/api/v1/admin/my-company/status', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log("📡 Respuesta del servidor - Status:", res.status);
+
+        if (res.status === 403) {
+            console.log("❌ ¡BLOQUEO DETECTADO (403)! Lanzando cartel...");
+            mostrarCartelBloqueo();
+            return;
+        }
+
+        if (res.ok) {
+            const data = await res.json();
+            console.log("✅ Datos recibidos:", data);
+
+            // Forzamos el cartel si los datos dicen que no está activo
+            if (data.active === false || data.vencido === true) {
+                console.log("⚠️ Los datos indican cuenta inactiva o vencida.");
+                mostrarCartelBloqueo();
+            }
+        }
+    } catch (err) {
+        console.error("🚨 Error de conexión al chequear licencia:", err);
+    }
 }
+
+function mostrarCartelBloqueo() {
+    sistemaBloqueado = true;
+
+    // Bloqueo total con SweetAlert
+    Swal.fire({
+        title: '¡SISTEMA SUSPENDIDO!',
+        html: `Tu suscripción ha vencido o tu cuenta está inactiva.<br><b>Contacta a Alexander Báez para habilitar el servicio.</b>`,
+        icon: 'error',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        confirmButtonColor: '#25D366',
+        confirmButtonText: '<i class="bi bi-whatsapp"></i> Hablar con Alexander',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            window.open(`https://wa.me/${MI_WHATSAPP}?text=Hola Alexander, mi sistema aparece como suspendido.`);
+            setTimeout(mostrarCartelBloqueo, 500); // Re-lanzar para que no se escape
+        }
+    });
+
+    // Limpiamos pantalla por seguridad
+    CARRITO = [];
+    renderizarCarrito();
+}
+
+// Ejecutar cada 30 segundos
+setInterval(chequearEstadoLicencia, 30000);
+
+
+function cerrarSesion() {
+    Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Salir',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+    });
+    }

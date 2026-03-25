@@ -56,8 +56,16 @@ public class SaleServiceImpl implements SaleService {
         // 1. Cargar contexto
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new RuntimeException("Empresa no encontrada"));
+
+        // --- AQUÍ ACTIVAMOS EL ESCUDO ---
+        validarAccesoEmpresa(company);
+        // Si la fecha venció, aquí se lanza la excepción y TODO lo de abajo se cancela.
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        // 2. Pre-Validación de Stock (esto ya lo tenías...)
+
 
         // 2. Pre-Validación de Stock
         for (SaleItemRequestDTO itemDTO : saleDTO.items()) {
@@ -301,18 +309,16 @@ public class SaleServiceImpl implements SaleService {
     @Override
     @Transactional(readOnly = true)
     public List<SaleResponseDTO> getSalesByDateRange(LocalDate desde, LocalDate hasta, Long companyId) {
-        // IMPORTANTE: Ajustar el rango horario
-        LocalDateTime start = desde.atStartOfDay(); // 00:00:00
-        LocalDateTime end = hasta.atTime(LocalTime.MAX); // 23:59:59.999
+        LocalDateTime start = desde.atStartOfDay();
+        LocalDateTime end = hasta.atTime(LocalTime.MAX);
 
-        // Llamada al repository
-        List<Sale> sales = saleRepository.findByCompanyIdAndSaleDateBetweenOrderBySaleDateDesc(
-                companyId, start, end
-        );
+        // CAMBIO TEMPORAL: Usamos findAll() para ver si hay ALGO en la base
+        List<Sale> sales = saleRepository.findAll();
 
-        // Convertimos las entidades a DTOs (usando tu lógica de conversión)
+        log.info("PRUEBA: Total de ventas en la base de datos: {}", sales.size());
+
         return sales.stream()
-                .map(this::convertToDTO)
+                .map(this::mapToResponseDTO)
                 .collect(Collectors.toList());
     }
 
@@ -340,5 +346,12 @@ public class SaleServiceImpl implements SaleService {
                 "",                                         // 9. String (Extra/Campo vacío)
                 itemDtos                                    // 10. List<SaleItemResponseDTO>
         );
+    }
+
+    public void validarAccesoEmpresa(Company empresa) {
+        if (empresa.getExpirationDate() != null &&
+                empresa.getExpirationDate().isBefore(LocalDate.now())) {
+            throw new RuntimeException("ACCESO DENEGADO: Suscripción vencida. Contacte a Alexander Baez para renovar.");
+        }
     }
 }

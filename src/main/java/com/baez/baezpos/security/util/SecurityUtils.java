@@ -1,7 +1,6 @@
 package com.baez.baezpos.security.util;
 
 import com.baez.baezpos.security.entity.UserPrincipal;
-import com.baez.baezpos.user.entity.User;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -10,34 +9,40 @@ import org.springframework.stereotype.Component;
 public class SecurityUtils {
 
     /**
-     * Obtiene el email del usuario autenticado desde el SecurityContext.
+     * Extrae el email del usuario autenticado.
      */
     public static String getCurrentUserEmail() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
+        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
             return null;
         }
         return authentication.getName();
     }
 
     /**
-     * Nota de Arquitecto:
-     * Para obtener el CompanyID de forma eficiente sin ir a la DB en cada click,
-     * lo ideal es extraerlo de los Claims del JWT que guardamos en el AuthToken.
+     * Extrae el ID de la empresa del Principal almacenado en el contexto.
+     * Este es el corazón de tu sistema Multitenant.
      */
     public static Long getCurrentCompanyId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof UserPrincipal principal) {
+
+        // Validamos que exista la autenticación y que el Principal sea del tipo correcto
+        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof UserPrincipal principal) {
             return principal.getCompanyId();
         }
+
+        // Si llega aquí, es porque no hay sesión o el token no tiene empresa
         return null;
     }
 
-    // En com.baez.baezpos.security.util.SecurityUtils
+    /**
+     * Extrae el ID único del usuario (no de la empresa).
+     */
     public static Long getCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof UserPrincipal principal) {
-            return principal.getId(); // El ID del usuario que guardamos en el UserPrincipal
+
+        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof UserPrincipal principal) {
+            return principal.getId();
         }
         return null;
     }

@@ -1,6 +1,7 @@
 package com.baez.baezpos.user.entity;
 
 public enum Role {
-    ADMIN,
-    CAJERO,
+    SUPER_ADMIN, // Alexander
+    ADMIN,       // Dueño del Kiosco
+    CAJERO       // Empleado
 }

@@ -13,7 +13,7 @@ let VENTAS_GLOBALES = [];
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     if (!token) {
-        window.location.href = 'index.html';
+        window.location.href = 'login.html';
         return;
     }
 
@@ -61,6 +61,30 @@ async function cargarVentas() {
             icon: 'error',
             confirmButtonColor: '#0d6efd'
         });
+    }
+}
+
+function cargarDatosPerfil() {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const nombreUsuario = payload.sub || "Usuario";
+
+        // 1. Seteamos el nombre en el texto
+        document.getElementById('userName').innerText = nombreUsuario;
+
+        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
+        const elInitial = document.getElementById('userInitial');
+        if (elInitial) {
+            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
+        }
+
+        // 3. Seteamos el nombre de la empresa
+        if(payload.companyName) {
+            document.getElementById('companyName').innerText = payload.companyName;
+        }
+
+    } catch (e) {
+        console.error("Error perfil:", e);
     }
 }
 
@@ -401,6 +425,16 @@ function reimprimirTicket() {
 }
 
 function cerrarSesion() {
-    localStorage.clear();
-    window.location.href = 'index.html';
+    Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Salir',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+    });
 }

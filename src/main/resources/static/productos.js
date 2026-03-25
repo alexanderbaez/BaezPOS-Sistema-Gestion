@@ -10,7 +10,6 @@ const token = localStorage.getItem('baezpos_token');
 let PRODUCTOS_LOCAL = [];
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Corrección: Verificación de token más estricta
     if (!token || token === 'undefined') { window.location.href = 'login.html'; return; }
 
     cargarDatosPerfil();
@@ -19,35 +18,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const form = document.getElementById('formProducto');
     if(form) form.addEventListener('submit', guardarProducto);
+
+    // ==========================================================
+    // RECEPTOR DE SCANNER EXTERNO (CORREGIDO)
+    // ==========================================================
+    const urlParams = new URLSearchParams(window.location.search);
+    const nuevoCodigo = urlParams.get('nuevoCodigo');
+    // Usamos decodeURIComponent para manejar espacios y caracteres especiales
+    const nuevoNombre = urlParams.get('nuevoNombre');
+
+if (nuevoCodigo) {
+        // 1. Abrimos el formulario
+        prepararFormulario();
+
+        // 2. Esperamos el tiempo suficiente
+        setTimeout(() => {
+            const inputCodigo = document.getElementById('prodBarcode');
+            const inputNombre = document.getElementById('prodNombre');
+
+            // LOG DE CONTROL PARA VOS
+            console.log("Intentando escribir en los campos...");
+
+            if (inputCodigo) inputCodigo.value = nuevoCodigo;
+
+            if (inputNombre && nuevoNombre) {
+                // Usamos decodeURIComponent y limpiamos espacios extras
+                const nombreLimpio = decodeURIComponent(nuevoNombre).trim().toUpperCase();
+                inputNombre.value = nombreLimpio;
+                console.log("Nombre escrito en input:", nombreLimpio);
+            }
+
+            // Foco al costo
+            const inputCosto = document.getElementById('prodCosto');
+            if (inputCosto) inputCosto.focus();
+
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }, 1000); // Subimos a 1 segundo para estar 100% seguros
+    }
 });
 
 // --- PERFIL Y SESIÓN ---
 function cargarDatosPerfil() {
     try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        document.getElementById('userName').innerText = payload.sub || "Usuario";
-        if(payload.companyName) document.getElementById('companyName').innerText = payload.companyName;
+        const nombreUsuario = payload.sub || "Usuario";
+
+        // 1. Seteamos el nombre en el texto
+        document.getElementById('userName').innerText = nombreUsuario;
+
+        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
+        const elInitial = document.getElementById('userInitial');
+        if (elInitial) {
+            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
+        }
+
+        // 3. Seteamos el nombre de la empresa
+        if(payload.companyName) {
+            document.getElementById('companyName').innerText = payload.companyName;
+        }
+
     } catch (e) {
         console.error("Error perfil:", e);
-        // Si el token es corrupto, redirigir
-        // window.location.href = 'login.html';
     }
 }
 
-function cerrarSesion() {
-    Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Salir',
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            localStorage.clear();
-            window.location.href = 'login.html';
-        }
-    });
-}
+
 
 // --- CATEGORÍAS ---
 async function cargarCategorias() {
@@ -78,7 +113,9 @@ function abrirModalCategoria() {
 }
 
 async function guardarCategoria() {
-    const nombre = document.getElementById('newCatNombre').value;
+    const nombreInput = document.getElementById('newCatNombre');
+    const nombre = nombreInput.value.trim();
+
     if(!nombre) return Swal.fire('Atención', "Escribe un nombre", 'warning');
 
     try {
@@ -86,17 +123,40 @@ async function guardarCategoria() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}` // <--- ESTO es lo que usa getTenantId()
             },
-            body: JSON.stringify({ name: nombre })
+            // Mandamos el objeto tal cual lo espera tu CategoryRequestDTO
+            body: JSON.stringify({
+                name: nombre,
+                description: "" // Mandamos descripción vacía por si el DTO la requiere
+            })
         });
+
         if(res.ok) {
-            bootstrap.Modal.getInstance(document.getElementById('modalCategoria')).hide();
-            document.getElementById('newCatNombre').value = '';
-            await cargarCategorias(); // Esperar a que recargue
-            Swal.fire('¡Éxito!', 'Categoría lista', 'success');
+            // Cerrar el modal
+            const modalEl = document.getElementById('modalCategoria');
+            const modalInstance = bootstrap.Modal.getInstance(modalEl);
+            if(modalInstance) modalInstance.hide();
+
+            nombreInput.value = ''; // Limpiar input
+
+            await cargarCategorias(); // Recargar la lista de categorías
+
+            Swal.fire({
+                icon: 'success',
+                title: '¡Categoría creada!',
+                text: `Se guardó en tu empresa correctamente`,
+                timer: 2000
+            });
+        } else {
+            // Si hay error, veamos qué dice el server
+            const errorData = await res.json();
+            Swal.fire('Error', errorData.message || 'No se pudo crear la categoría', 'error');
         }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+        console.error("Error en la petición:", err);
+        Swal.fire('Error', 'Fallo de conexión con el servidor', 'error');
+    }
 }
 
 // --- PRODUCTOS ---
@@ -152,16 +212,28 @@ async function guardarProducto(e) {
     e.preventDefault();
     const id = document.getElementById('prodId').value;
 
+    // Capturamos los valores
+    const nombre = document.getElementById('prodNombre').value.trim();
+    const categoriaId = document.getElementById('prodCategoria').value;
+    const barcode = document.getElementById('prodBarcode').value.trim();
+
+    // VALIDACIÓN PREVIA (Antes de mandarlo a Java)
+    if (!nombre) return Swal.fire('Error', 'El nombre es obligatorio', 'warning');
+    if (!categoriaId) return Swal.fire('Error', 'Selecciona una categoría', 'warning');
+
     const body = {
-        name: document.getElementById('prodNombre').value,
-        description: "",
-        barcode: document.getElementById('prodBarcode').value,
+        name: nombre,
+        description: "Producto Suelto", // Ponemos algo por defecto
+        // Si no hay código de barras, le ponemos el mismo nombre para que no sea nulo
+        barcode: barcode || nombre.substring(0, 10).toUpperCase() + Date.now(),
         cost: parseFloat(document.getElementById('prodCosto').value) || 0,
         price: parseFloat(document.getElementById('prodPrecio').value) || 0,
         stock: parseInt(document.getElementById('prodStock').value) || 0,
         minStock: parseInt(document.getElementById('prodMinStock').value) || 0,
-        categoryId: parseInt(document.getElementById('prodCategoria').value)
+        categoryId: parseInt(categoriaId)
     };
+
+    console.log("Enviando a Java:", body); // Para que veas en consola qué mandas
 
     try {
         const res = await fetch(id ? `${API_BASE}/${id}` : API_BASE, {
@@ -175,14 +247,21 @@ async function guardarProducto(e) {
 
         if (res.ok) {
             const modalEl = document.getElementById('modalProducto');
-            bootstrap.Modal.getInstance(modalEl).hide();
+            const modalInstance = bootstrap.Modal.getInstance(modalEl);
+            if(modalInstance) modalInstance.hide();
+
             await listarProductos();
             Swal.fire({ icon: 'success', title: id ? 'Actualizado' : 'Creado', toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
         } else {
+            // AQUÍ CAPTURAMOS EL ERROR REAL DE JAVA
             const errorData = await res.json();
-            Swal.fire('Error', errorData.message || 'Error al guardar el producto', 'error');
+            console.error("Error desde Java:", errorData);
+            Swal.fire('Error', errorData.message || 'Error al guardar. Revisá si el código de barras ya existe.', 'error');
         }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+        console.error("Error de conexión:", err);
+        Swal.fire('Error', 'No se pudo conectar con el servidor', 'error');
+    }
 }
 
 function prepararFormulario() {
@@ -342,4 +421,19 @@ function imprimirEtiqueta(id) {
         </html>
     `);
     ventana.document.close();
+}
+
+function cerrarSesion() {
+    Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Salir',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+    });
 }

@@ -15,7 +15,7 @@ import java.time.LocalDate;
 @NoArgsConstructor @AllArgsConstructor
 @SuperBuilder
 @SQLDelete(sql = "UPDATE companies SET active = false WHERE id = ?")
-@SQLRestriction("active = true") // Por defecto, solo vemos las activas
+//@SQLRestriction("active = true") // Por defecto, solo vemos las activas
 public class Company extends BaseEntity {
 
     @Id

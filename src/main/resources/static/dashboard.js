@@ -6,7 +6,7 @@ const token = localStorage.getItem('baezpos_token');
 const userName = localStorage.getItem('baezpos_user_name');
 
 document.addEventListener('DOMContentLoaded', async () => {
-    if (!token) { window.location.href = 'index.html'; return; }
+    if (!token) { window.location.href = 'login.html'; return; }
 
     document.getElementById('userNameLabel').innerText = userName || 'Usuario';
     document.getElementById('fechaActual').innerText = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -18,6 +18,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         cargarDatosGrafico() // <--- Nueva función
     ]);
 });
+
+function cargarDatosPerfil() {
+    try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const nombreUsuario = payload.sub || "Usuario";
+
+        // 1. Seteamos el nombre en el texto
+        document.getElementById('userName').innerText = nombreUsuario;
+
+        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
+        const elInitial = document.getElementById('userInitial');
+        if (elInitial) {
+            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
+        }
+
+        // 3. Seteamos el nombre de la empresa
+        if(payload.companyName) {
+            document.getElementById('companyName').innerText = payload.companyName;
+        }
+
+    } catch (e) {
+        console.error("Error perfil:", e);
+    }
+}
 
 async function cargarDatosDashboard() {
     try {
@@ -188,6 +212,16 @@ async function cargarDatosGrafico() {
 }
 
 function cerrarSesion() {
-    localStorage.clear();
-    window.location.href = 'index.html';
+    Swal.fire({
+        title: '¿Cerrar sesión?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Salir',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            localStorage.clear();
+            window.location.href = 'login.html';
+        }
+    });
 }

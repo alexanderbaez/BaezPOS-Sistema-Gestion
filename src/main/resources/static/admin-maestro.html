@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BÁEZ POS | Panel Maestro de Administración</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+  <style>
+    :root {
+        --bg-main: #0f172a;
+        --bg-card: #1e293b;
+        --primary: #3b82f6;
+        --accent: #10b981;
+        --warning: #f59e0b;
+        --danger: #ef4444;
+        --text-muted: #cbd5e1; /* Gris claro para lectura */
+    }
+
+    body {
+        background-color: var(--bg-main);
+        color: #f8fafc;
+        font-family: 'Inter', sans-serif;
+        overflow-x: hidden;
+        padding-bottom: 50px;
+    }
+
+    /* Scrollbar Personalizada */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-main); }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+    /* Tarjetas y Contenedores */
+    .card {
+        background: var(--bg-card);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 16px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+    }
+
+    /* --- SECCIÓN DE KPIs (LOS CUADRITOS DE ARRIBA) --- */
+    .kpi-card {
+        background: #1e293b !important;
+        border-left: 5px solid var(--primary);
+        transition: transform 0.2s;
+    }
+
+    /* Títulos de los cuadritos: Blanco fuerte para que se lea */
+    .kpi-card .uppercase, .kpi-card p {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        text-transform: uppercase;
+        font-size: 0.8rem !important;
+        letter-spacing: 0.5px;
+        opacity: 1 !important;
+    }
+
+    /* Números grandes: Colores brillantes y legibles */
+    .kpi-card h3 {
+        font-size: 2.2rem !important;
+        font-weight: 800 !important;
+        margin-top: 5px !important;
+    }
+
+    #kpiTotal { color: #ffffff !important; }          /* Blanco */
+    #kpiActivos { color: #4ade80 !important; }        /* Verde brillante */
+    #kpiProntoVencer { color: #fbbf24 !important; }   /* Naranja/Amarillo */
+    #kpiVencidos { color: #f87171 !important; }       /* Rojo claro */
+
+    /* Tabla Estilizada */
+    .table { color: #f8fafc; margin-bottom: 0; }
+    .table thead th {
+        background: rgba(0,0,0,0.4);
+        color: #ffffff !important; /* Blanco para los títulos de columna */
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        padding: 15px;
+        border: none;
+    }
+
+    .table tbody tr td {
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        color: #f1f5f9 !important;
+        padding: 14px;
+    }
+
+    /* Estados de Fila */
+    .row-vencido { background-color: rgba(239, 68, 68, 0.15) !important; border-left: 4px solid var(--danger) !important; }
+    .row-vencido td { color: #fecaca !important; }
+
+    .row-pronto { background-color: rgba(245, 158, 11, 0.15) !important; border-left: 4px solid var(--warning) !important; }
+    .row-pronto td { color: #fef3c7 !important; }
+
+    /* Inputs y Form */
+    .form-control, .form-select {
+        background-color: #0f172a !important;
+        border: 1px solid #475569;
+        color: #ffffff !important;
+        border-radius: 10px;
+        padding: 0.7rem 1rem;
+    }
+    .form-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #e2e8f0 !important; /* Casi blanco */
+        text-transform: uppercase;
+    }
+
+    /* Botones */
+    .btn-primary { background: linear-gradient(135deg, var(--primary), #2563eb); border: none; font-weight: 600; color: white !important; }
+
+    /* Dinero Badge */
+    .money-badge {
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.5);
+        color: #34d399 !important;
+        padding: 8px 18px;
+        border-radius: 12px;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    /* Logs */
+    .log-item { border-bottom: 1px solid rgba(255,255,255,0.05); padding: 12px; }
+    .text-info { color: #7dd3fc !important; }
+    .text-success { color: #6ee7b7 !important; }
+    .text-danger { color: #fca5a5 !important; }
+
+    .badge.rounded-pill { font-weight: 700; }
+  </style>
+</head>
+
+<body class="py-4">
+
+<div class="container">
+  <header class="d-flex justify-content-between align-items-center mb-5">
+    <div>
+      <h2 class="fw-bold m-0 text-white"><span class="text-primary">BÁEZ</span> POS <span class="badge bg-primary fs-6 ms-2 fw-light">SISTEMA MAESTRO</span></h2>
+      <p class="text-muted small m-0">Bienvenido Alexander, gestionando la red de comercios.</p>
+    </div>
+
+    <div class="d-flex align-items-center gap-3">
+      <div class="money-badge">
+        <i class="bi bi-cash-stack me-2"></i>RECAUDACIÓN:
+        <span id="kpiGanancia" class="fw-bold">$ 0,00</span>
+      </div>
+      <button class="btn btn-outline-danger btn-sm px-3" onclick="cerrarSesion()">
+        <i class="bi bi-power me-2"></i>Cerrar Sesión
+      </button>
+    </div>
+  </header>
+
+  <div class="row g-3 mb-5">
+    <div class="col-md-3">
+      <div class="card p-3 kpi-card border-primary">
+        <div class="d-flex justify-content-between align-items-center">
+          <div><p class="text-muted small fw-bold mb-1 uppercase">Clientes</p><h3 class="fw-bold m-0" id="kpiTotal">0</h3></div>
+          <i class="bi bi-buildings fs-2 text-primary opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 kpi-card" style="border-left-color: var(--accent);">
+        <div class="d-flex justify-content-between align-items-center">
+          <div><p class="text-muted small fw-bold mb-1 uppercase">Activos</p><h3 class="fw-bold m-0 text-success" id="kpiActivos">0</h3></div>
+          <i class="bi bi-check-circle fs-2 text-success opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 kpi-card" style="border-left-color: var(--warning);">
+        <div class="d-flex justify-content-between align-items-center">
+          <div><p class="text-muted small fw-bold mb-1 uppercase">Vencen pronto</p><h3 class="fw-bold m-0 text-warning" id="kpiProntoVencer">0</h3></div>
+          <i class="bi bi-clock-history fs-2 text-warning opacity-50"></i>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card p-3 kpi-card" style="border-left-color: var(--danger);">
+        <div class="d-flex justify-content-between align-items-center">
+          <div><p class="text-muted small fw-bold mb-1 uppercase">Vencidos</p><h3 class="fw-bold m-0 text-danger" id="kpiVencidos">0</h3></div>
+          <i class="bi bi-exclamation-triangle fs-2 text-danger opacity-50"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+      <div class="card p-4 shadow-lg mb-4">
+        <h5 class="fw-bold mb-4 text-primary"><i class="bi bi-plus-circle me-2"></i>Nuevo Comercio</h5>
+        <form id="formNuevaEmpresa">
+          <div class="mb-3">
+            <label class="form-label">Nombre Comercial</label>
+            <input type="text" id="masterNombre" class="form-control" placeholder="Ej: Supermercado Baez" required>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Identificación Fiscal (TaxID)</label>
+              <input type="text" id="masterTaxId" class="form-control" placeholder="20-XXXXXXXX-9" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Teléfono de Contacto</label>
+              <input type="text" id="masterTelefono" class="form-control" placeholder="1122334455" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Dirección Completa</label>
+            <input type="text" id="masterDireccion" class="form-control" placeholder="Av. Siempre Viva 123" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email de Administración</label>
+            <input type="email" id="masterEmail" class="form-control" placeholder="dueño@correo.com" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Contraseña inicial para el Dueño</label>
+            <input type="password" id="masterPass" class="form-control" placeholder="••••••••" required>
+          </div>
+          <div class="mb-4">
+            <label class="form-label text-warning"><i class="bi bi-calendar-event me-1"></i>Fecha de Vencimiento</label>
+            <input type="date" id="masterVenc" class="form-control" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100 py-2">
+            <i class="bi bi-cloud-check me-2"></i>DAR DE ALTA COMERCIO
+          </button>
+        </form>
+      </div>
+
+      <div class="card overflow-hidden shadow-lg">
+        <div class="card-header bg-dark border-0 py-3 d-flex justify-content-between align-items-center">
+          <h6 class="fw-bold text-primary m-0 small"><i class="bi bi-clock-history me-2"></i>BITÁCORA DE EVENTOS</h6>
+          <button class="btn btn-sm btn-link text-white-50 p-0" onclick="cargarLogs()"><i class="bi bi-arrow-repeat"></i></button>
+        </div>
+        <div id="listaLogs" style="max-height: 450px; overflow-y: auto;">
+          <div class="p-4 text-center text-muted small">Cargando actividad...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      <div class="card p-4 shadow-lg h-100">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4 border-bottom pb-3 border-secondary border-opacity-25">
+          <h5 class="fw-bold m-0"><i class="bi bi-grid-3x3-gap me-2 text-primary"></i>Gestión de Clientes</h5>
+          <div class="position-relative w-100 w-md-50">
+            <i class="bi bi-search position-absolute top-50 start-0 translate-middle-y ms-3 text-muted"></i>
+            <input type="text" id="buscadorEmpresas" class="form-control ps-5" placeholder="Buscar por nombre, email o taxid...">
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead>
+            <tr>
+              <th>Empresa</th>
+              <th>Email</th>
+              <th>Vence</th>
+              <th>Estado</th>
+              <th class="text-end">Acciones</th>
+            </tr>
+            </thead>
+            <tbody id="tablaEmpresas">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalEditar" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content border-0 bg-dark text-white">
+      <div class="modal-header bg-primary border-0 py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Perfil del Cliente</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <form id="formEditarEmpresa">
+          <input type="hidden" id="editId">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Nombre del Comercio</label>
+              <input type="text" id="editNombre" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Identificación Fiscal (TaxID)</label>
+              <input type="text" id="editTaxId" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Email de Contacto</label>
+              <input type="email" id="editEmail" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label text-warning">Contraseña <small>(Vacío = sin cambios)</small></label>
+              <input type="password" id="editPass" class="form-control" placeholder="••••••••">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label text-info">Estado de la Cuenta</label>
+              <select id="editActive" class="form-select border-info border-opacity-50">
+                <option value="true">ACTIVO / HABILITADO</option>
+                <option value="false">SUSPENDIDO / BLOQUEADO</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Teléfono / WhatsApp</label>
+              <input type="text" id="editPhone" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Dirección</label>
+              <input type="text" id="editAddress" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label text-warning fw-bold">
+                <i class="bi bi-calendar-check me-1"></i>Fecha de Vencimiento
+              </label>
+              <input type="date" id="editVencimiento" class="form-control border-warning border-opacity-50">
+            </div>
+            <div class="col-12">
+              <label class="form-label text-info"><i class="bi bi-receipt me-1"></i>Mensaje Pie de Ticket</label>
+              <textarea id="editTicketMessage" class="form-control" rows="2" placeholder="Ej: Gracias por su compra. IVA incluido."></textarea>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-4 pt-3 border-top border-secondary">
+            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold">GUARDAR CAMBIOS</button>
+            <button type="button" class="btn btn-outline-secondary w-100" data-bs-dismiss="modal">CANCELAR</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="admin-maestro.js"></script>
+
+</body>
+</html>
