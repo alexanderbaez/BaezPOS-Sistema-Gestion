@@ -1,22 +1,21 @@
 package com.baez.baezpos.product.entity;
 
-import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.SQLDelete;
-import org.hibernate.annotations.SQLRestriction;
 
 import java.math.BigDecimal;
 
 @Entity
 @Table(name = "products", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"barcode", "company_id"}) // Unicidad por Tenant
+        @UniqueConstraint(columnNames = {"barcode"}) // Unicidad global (local)
 })
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
 @Builder
 @SQLDelete(sql = "UPDATE products SET active = false WHERE id = ?")
+// Si usas Hibernate 6.3+, SQLRestriction es el reemplazo de Where para soft delete
 public class Product extends BaseEntity {
 
     @Id
@@ -28,7 +27,7 @@ public class Product extends BaseEntity {
 
     private String description;
 
-    @Column(length = 100)
+    @Column(length = 100) // Ahora es único de forma absoluta
     private String barcode;
 
     @Column(nullable = false, precision = 10, scale = 2)
@@ -49,8 +48,4 @@ public class Product extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
-    private Company company;
 }

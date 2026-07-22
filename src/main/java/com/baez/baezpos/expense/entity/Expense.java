@@ -1,6 +1,5 @@
 package com.baez.baezpos.expense.entity;
 
-import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -24,7 +23,4 @@ public class Expense extends BaseEntity {
     @Column(nullable = false)
     private LocalDateTime expenseDate;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
-    private Company company;
 }

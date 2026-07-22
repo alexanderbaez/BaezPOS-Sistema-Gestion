@@ -27,29 +27,26 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponseDTO createUser(User user) {
         if (userRepository.existsByEmail(user.getEmail())) {
-            throw new RuntimeException("El email '" + user.getEmail() + "' ya está registrado.");
+            throw new RuntimeException("El email '" + user.getEmail() + "' ya existe.");
         }
-
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         user.setActive(true);
-
-        log.info("SaaS: Registrando usuario {} para empresa ID: {}", user.getEmail(), user.getCompany().getId());
+        log.info("LOCAL: Registrando nuevo usuario: {}", user.getEmail());
         return convertToDTO(userRepository.save(user));
     }
 
     @Override
     @Transactional(readOnly = true)
     public UserResponseDTO getUserById(Long id) {
-        User user = userRepository.findById(id)
+        return userRepository.findById(id)
+                .map(this::convertToDTO)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado con ID: " + id));
-        return convertToDTO(user);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<UserResponseDTO> getAllByCompany(Long companyId) {
-        return userRepository.findAllByCompanyId(companyId)
-                .stream()
+    public List<UserResponseDTO> getAllUsers() {
+        return userRepository.findAll().stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
     }
@@ -62,11 +59,12 @@ public class UserServiceImpl implements UserService {
 
         existing.setName(details.getName());
         existing.setRole(details.getRole());
-
-        if (!existing.getEmail().equals(details.getEmail()) && userRepository.existsByEmail(details.getEmail())) {
-            throw new RuntimeException("El nuevo email ya está en uso.");
-        }
         existing.setEmail(details.getEmail());
+
+        // CORRECCIÓN: Si el objeto que viene del frontend trae password, se encripta y guarda
+        if (details.getPassword() != null && !details.getPassword().isEmpty()) {
+            existing.setPassword(passwordEncoder.encode(details.getPassword()));
+        }
 
         return convertToDTO(userRepository.save(existing));
     }
@@ -76,36 +74,32 @@ public class UserServiceImpl implements UserService {
     public void deleteUser(Long id) {
         if (!userRepository.existsById(id)) throw new RuntimeException("Usuario no existe.");
         userRepository.deleteById(id);
-        log.warn("Usuario eliminado (Soft Delete) ID: {}", id);
+        log.warn("Usuario eliminado ID: {}", id);
     }
 
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        User user = userRepository.findByEmail(email)
+        // En modo local, la entidad User ya implementa UserDetails, la devolvemos directo
+        return userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado: " + email));
-
-        if (!user.getCompany().getActive()) {
-            throw new RuntimeException("Empresa inactiva o suscripción vencida.");
-        }
-
-        return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getEmail())
-                .password(user.getPassword())
-                .authorities(user.getRole().name())
-                .disabled(!user.getActive())
-                .build();
     }
 
-    // MAPPER MANUAL (Sin librerías externas para mantenerlo simple)
     private UserResponseDTO convertToDTO(User user) {
         return UserResponseDTO.builder()
                 .id(user.getId())
                 .name(user.getName())
                 .email(user.getEmail())
                 .role(user.getRole())
-                .companyId(user.getCompany().getId())
-                .companyName(user.getCompany().getName())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void updatePasswordOnly(String email, String newPassword) {
+        User user = userRepository.findByEmail(email).get();
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordResetAt(null); // <--- Limpiamos el reloj porque ya puso su clave real
+        userRepository.save(user);
     }
 }

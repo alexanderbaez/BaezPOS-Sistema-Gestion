@@ -6,8 +6,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
+
 @Data
-@Builder // <--- AGREGA ESTA LÍNEA
+@Builder
 @AllArgsConstructor
 @NoArgsConstructor
 public class CompanyDTO {
@@ -17,11 +18,16 @@ public class CompanyDTO {
     private String address;
     private String phone;
     private String email;
-    private String ownerPassword;
     private LocalDate expirationDate;
     private Boolean active;
-
-    // --- AGREGAR ESTOS CAMPOS PARA QUE NO DE ERROR EL MAPPER ---
     private String ticketMessage;
-    private String logoUrl;
+    private String ownerPassword;
+
+    // ==========================================
+    // CAMPOS FISCALES AGREGADOS (ARCA / AFIP)
+    // ==========================================
+    private Boolean hasTaxData;
+    private String iibb;
+    private String inicioActividades;
+    private String condicionIva;
 }

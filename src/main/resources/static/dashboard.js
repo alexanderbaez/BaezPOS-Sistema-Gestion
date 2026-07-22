@@ -1,103 +1,116 @@
-const BASE_URL = 'http://localhost:8080/api/v1';
-const API_SALES = `${BASE_URL}/sales`; // Usamos el endpoint general para calcular históricos
-const API_PRODUCTS = `${BASE_URL}/products`;
-
-const token = localStorage.getItem('baezpos_token');
-const userName = localStorage.getItem('baezpos_user_name');
+/**
+ * BÁEZ POS - DASHBOARD DE GESTIÓN LOCAL
+ * Sistema de Control Financiero y Métricas de Rendimiento Real
+ */
 
 document.addEventListener('DOMContentLoaded', async () => {
-    if (!token) { window.location.href = 'login.html'; return; }
-
-    document.getElementById('userNameLabel').innerText = userName || 'Usuario';
-    document.getElementById('fechaActual').innerText = new Date().toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-    // Cargamos todo en paralelo para máxima velocidad
-    await Promise.all([
-        cargarDatosDashboard(),
-        cargarAlertasStock(),
-        cargarDatosGrafico() // <--- Nueva función
-    ]);
-});
-
-function cargarDatosPerfil() {
-    try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const nombreUsuario = payload.sub || "Usuario";
-
-        // 1. Seteamos el nombre en el texto
-        document.getElementById('userName').innerText = nombreUsuario;
-
-        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
-        const elInitial = document.getElementById('userInitial');
-        if (elInitial) {
-            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
-        }
-
-        // 3. Seteamos el nombre de la empresa
-        if(payload.companyName) {
-            document.getElementById('companyName').innerText = payload.companyName;
-        }
-
-    } catch (e) {
-        console.error("Error perfil:", e);
+    // 1. Renderizar el nombre real del usuario activo desde el localStorage
+    const elUserLabel = document.getElementById('userNameLabel');
+    if (elUserLabel) {
+        const nombreUsuario = localStorage.getItem('baezpos_user_name');
+        elUserLabel.innerText = nombreUsuario ? nombreUsuario.toUpperCase() : "ADMINISTRADOR";
     }
-}
+
+    // 2. Establecer fecha actual localizada
+    if (document.getElementById('fechaActual')) {
+        document.getElementById('fechaActual').innerText = new Date().toLocaleDateString('es-AR', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        });
+    }
+
+    // 3. Carga concurrente de los datos de la interfaz
+    await cargarDatosDashboard();
+    await cargarAlertasStock();
+    await cargarDatosGrafico();
+});
 
 async function cargarDatosDashboard() {
     try {
-        const response = await fetch(`${BASE_URL}/sales/report/box`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (!response.ok) throw new Error("No se pudo obtener el reporte de caja");
-
+        // Petición al endpoint de reporte de caja diario/mensual
+        const response = await apiFetch(`/sales/report/box?period=today`);
         const data = await response.json();
 
-        // Función rápida para formatear dinero en pesos argentinos
+        // Formateador de moneda oficial para Argentina (ARS)
         const fmt = (val) => new Intl.NumberFormat('es-AR', {
             style: 'currency',
-            currency: 'ARS'
+            currency: 'ARS',
+            signDisplay: 'auto'
         }).format(val || 0);
 
-        // --- 1. RESUMEN DE HOY (Las 4 tarjetas superiores) ---
-        document.getElementById('txtRecaudacion').innerText = fmt(data.todaySales);
-        document.getElementById('txtEfectivoHoy').innerText = fmt(data.cashSales);
-        document.getElementById('txtTransfHoy').innerText = fmt(data.transferSales);
-        document.getElementById('txtGastos').innerText = fmt(data.todayExpenses);
+        // --- 1. TOTALES PRINCIPALES HOY ---
+        if (document.getElementById('txtRecaudacion'))
+            document.getElementById('txtRecaudacion').innerText = fmt(data.totalSales);
 
-        // --- 2. LAS NUEVAS TARJETAS (Libreta y Balance Real) ---
-        // 'creditSales' es el 4to campo de tu DTO
-        document.getElementById('cardLibreta').innerText = fmt(data.creditSales);
-        // 'finalBalance' es el 7mo campo de tu DTO
-        document.getElementById('cardBalanceReal').innerText = fmt(data.finalBalance);
+        if (document.getElementById('cardBalanceReal'))
+            document.getElementById('cardBalanceReal').innerText = fmt(data.realBalance);
 
-        // --- 3. RENDIMIENTO MENSUAL (Las 2 tarjetas del medio) ---
-        // 'monthSales' es el 8vo campo de tu DTO
-        document.getElementById('txtRecaudacionMes').innerText = fmt(data.monthSales);
-        // 'todayCount' es el 11vo campo (long)
-        document.getElementById('txtVentasCountMes').innerText = data.todayCount;
+        if (document.getElementById('txtEfectivoHoy'))
+            document.getElementById('txtEfectivoHoy').innerText = fmt(data.cashSales);
 
-        // --- 4. COLOR DINÁMICO PARA EL BALANCE REAL ---
-        const balanceRealElement = document.getElementById('cardBalanceReal');
-        if (data.finalBalance < 0) {
-            balanceRealElement.parentElement.parentElement.classList.replace('bg-info', 'bg-danger');
-        } else {
-            balanceRealElement.parentElement.parentElement.classList.replace('bg-danger', 'bg-info');
+        if (document.getElementById('txtTransfHoy'))
+            document.getElementById('txtTransfHoy').innerText = fmt(data.transferSales);
+
+        // --- 2. GESTIÓN DE CUENTA CORRIENTE (LIBRETA) ---
+        if (document.getElementById('cardLibreta')) {
+            const elLibreta = document.getElementById('cardLibreta');
+            const saldoLibreta = data.tCredit || 0;
+            elLibreta.innerText = fmt(saldoLibreta);
+
+            if (saldoLibreta < 0) {
+                elLibreta.classList.remove('text-danger');
+                elLibreta.classList.add('text-success');
+            } else {
+                elLibreta.classList.remove('text-success');
+                elLibreta.classList.add('text-danger');
+            }
         }
 
+        // --- 3. RENDIMIENTO MENSUAL ANALÍTICO (NUEVAS MÉTRICAS) ---
+        if (document.getElementById('txtRecaudacionMes'))
+            document.getElementById('txtRecaudacionMes').innerText = fmt(data.monthSales);
+
+        if (document.getElementById('txtGananciaMes'))
+            document.getElementById('txtGananciaMes').innerText = fmt(data.monthProfit);
+
+        if (document.getElementById('txtReposicionMes'))
+            document.getElementById('txtReposicionMes').innerText = fmt(data.monthReplacementCost);
+
+        if (document.getElementById('txtVentasCountMes'))
+            document.getElementById('txtVentasCountMes').innerText = data.monthOperations || 0;
+
     } catch (err) {
-        console.error("Error al cargar el Dashboard:", err);
+        console.error("Error al cargar KPIs del Dashboard:", err);
+    }
+}
+
+async function cargarDatosGrafico() {
+    try {
+        const response = await apiFetch(`/sales/report/chart`);
+        const data = await response.json();
+
+        if (!data || data.length === 0) return;
+
+        const etiquetas = data.map(item => {
+            const partes = item.label.split('-');
+            return `${partes[2]}/${partes[1]}`; // Convierte YYYY-MM-DD a DD/MM
+        });
+
+        const valores = data.map(item => item.total);
+        renderizarGraficoSemanal(etiquetas, valores);
+
+    } catch (err) {
+        console.error("Error en gráfico:", err);
     }
 }
 
 function renderizarGraficoSemanal(etiquetas, valores) {
     const canvas = document.getElementById('chartSemanal');
-    const ctx = canvas.getContext('2d');
+    if (!canvas) return;
 
-    // Creamos un degradado (fuerte arriba, transparente abajo)
+    const ctx = canvas.getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(30, 58, 138, 0.4)'); // Azul BaezPOS
-    gradient.addColorStop(1, 'rgba(30, 58, 138, 0.0)');
+    gradient.addColorStop(0, 'rgba(37, 99, 235, 0.2)');
+    gradient.addColorStop(1, 'rgba(37, 99, 235, 0)');
 
     if (window.myChart) window.myChart.destroy();
 
@@ -108,51 +121,22 @@ function renderizarGraficoSemanal(etiquetas, valores) {
             datasets: [{
                 label: 'Ventas ($)',
                 data: valores,
-                borderColor: '#1e3a8a',
-                borderWidth: 3,
-                backgroundColor: gradient, // Aplicamos el degradado
+                borderColor: '#2563eb',
+                borderWidth: 4,
+                backgroundColor: gradient,
                 fill: true,
-                tension: 0.4, // Curva suave
-                pointRadius: 4,
-                pointHoverRadius: 8,
-                pointBackgroundColor: '#fff',
-                pointBorderColor: '#1e3a8a',
-                pointBorderWidth: 2
+                tension: 0.4,
+                pointRadius: 5,
+                pointBackgroundColor: '#fff'
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#1e3a8a',
-                    titleFont: { size: 14, weight: 'bold' },
-                    bodyFont: { size: 13 },
-                    padding: 10,
-                    displayColors: false,
-                    callbacks: {
-                        label: function(context) {
-                            return 'Ventas: ' + new Intl.NumberFormat('es-AR', {
-                                style: 'currency', currency: 'ARS'
-                            }).format(context.parsed.y);
-                        }
-                    }
-                }
-            },
+            plugins: { legend: { display: false } },
             scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#f3f4f6', drawBorder: false },
-                    ticks: {
-                        callback: value => '$' + value.toLocaleString('es-AR'),
-                        color: '#9ca3af'
-                    }
-                },
-                x: {
-                    grid: { display: false },
-                    ticks: { color: '#9ca3af' }
-                }
+                y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                x: { grid: { display: false } }
             }
         }
     });
@@ -160,68 +144,42 @@ function renderizarGraficoSemanal(etiquetas, valores) {
 
 async function cargarAlertasStock() {
     try {
-        const res = await fetch(API_PRODUCTS, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await apiFetch('/products');
         const productos = await res.json();
+
+        // Filtrar productos con existencias críticas
         const criticos = productos.filter(p => p.stock < 10);
+
+        const badge = document.getElementById('badgeStockCount');
+        if (badge) badge.innerText = criticos.length;
+
         const container = document.getElementById('listaAlertasStock');
-        document.getElementById('badgeStockCount').innerText = criticos.length;
+        if (!container) return;
 
         if (criticos.length === 0) {
-            container.innerHTML = `<div class="text-center py-4"><i class="bi bi-check-circle text-success fs-2"></i><p class="small text-muted">Stock saludable</p></div>`;
+            container.innerHTML = `
+                <div class="text-center py-5 opacity-50">
+                    <i class="bi bi-shield-check fs-1 text-success"></i>
+                    <p class="mt-2 small">Stock al día. Sin alertas.</p>
+                </div>`;
             return;
         }
 
         container.innerHTML = criticos.map(p => `
-            <div class="d-flex align-items-center p-3 mb-2 rounded-3 border-start border-4 ${p.stock <= 3 ? 'border-danger bg-danger bg-opacity-10' : 'border-warning bg-warning bg-opacity-10'}">
+            <div class="d-flex align-items-center p-3 mb-3 rounded-4 border-start border-4 ${p.stock <= 3 ? 'border-danger bg-danger bg-opacity-10' : 'border-warning bg-warning bg-opacity-10'}">
                 <div class="flex-grow-1">
-                    <h6 class="mb-0 fw-bold small">${p.name}</h6>
-                    <small class="text-muted">Stock actual: ${p.stock}</small>
+                    <h6 class="mb-0 fw-bold small text-dark">${p.name.toUpperCase()}</h6>
+                    <small class="text-muted">Quedan ${p.stock} unidades</small>
                 </div>
-                <span class="badge ${p.stock <= 3 ? 'bg-danger' : 'bg-warning'} text-white">${p.stock}</span>
+                <span class="badge ${p.stock <= 3 ? 'bg-danger' : 'bg-warning'} rounded-pill">${p.stock}</span>
             </div>
         `).join('');
-    } catch (err) { console.error(err); }
-}
-
-async function cargarDatosGrafico() {
-    try {
-        const response = await fetch(`${BASE_URL}/sales/report/chart`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (!response.ok) throw new Error("Error en el gráfico");
-
-        const data = await response.json(); // Viene: [{label: "2026-03-20", total: 1500}, ...]
-
-        // Extraemos las etiquetas y los valores
-        // El slice(-5) es opcional por si la fecha viene año-mes-dia y querés solo dia/mes
-        const etiquetas = data.map(item => {
-            const partes = item.label.split('-');
-            return `${partes[2]}/${partes[1]}`; // Retorna DD/MM
-        });
-
-        const valores = data.map(item => item.total);
-
-        renderizarGraficoSemanal(etiquetas, valores);
 
     } catch (err) {
-        console.error("Error al cargar gráfico:", err);
-    }
-}
-
-function cerrarSesion() {
-    Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Salir',
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            localStorage.clear();
-            window.location.href = 'login.html';
+        console.error("Error en módulo de stock:", err);
+        const container = document.getElementById('listaAlertasStock');
+        if (container) {
+            container.innerHTML = '<p class="text-danger small text-center py-3">Error al conectar con inventario</p>';
         }
-    });
+    }
 }

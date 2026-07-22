@@ -5,7 +5,6 @@ import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.SQLDelete;
-import org.hibernate.annotations.SQLRestriction;
 
 import java.time.LocalDate;
 
@@ -15,7 +14,6 @@ import java.time.LocalDate;
 @NoArgsConstructor @AllArgsConstructor
 @SuperBuilder
 @SQLDelete(sql = "UPDATE companies SET active = false WHERE id = ?")
-//@SQLRestriction("active = true") // Por defecto, solo vemos las activas
 public class Company extends BaseEntity {
 
     @Id
@@ -37,15 +35,32 @@ public class Company extends BaseEntity {
     @Column(name = "expiration_date")
     private LocalDate expirationDate;
 
+    @Builder.Default
     @Column(nullable = false)
     private Boolean active = true;
 
     @Column(name = "ticket_message", columnDefinition = "TEXT")
-    private String ticketMessage; // Ej: "¡Gracias por su compra! Vuelva pronto."
+    private String ticketMessage;
 
     @Column(name = "logo_url")
-    private String logoUrl; // Por si en el futuro quiere subir una imagen
+    private String logoUrl;
 
     @Column(length = 100)
-    private String email; // Para contacto administrativo
+    private String email;
+
+    // ==========================================
+    // CAMPOS FISCALES ARCA / AFIP (CORREGIDO)
+    // ==========================================
+    @Builder.Default
+    @Column(name = "has_tax_data")
+    private Boolean hasTaxData = true;
+
+    @Column(length = 50)
+    private String iibb;
+
+    @Column(name = "inicio_actividades", length = 20)
+    private String inicioActividades;
+
+    @Column(name = "condicion_iva", length = 100)
+    private String condicionIva;
 }

@@ -11,6 +11,5 @@ public class UserResponseDTO {
     private String name;
     private String email;
     private Role role;
-    private Long companyId;
-    private String companyName;
+    // Quitamos companyId y companyName
 }

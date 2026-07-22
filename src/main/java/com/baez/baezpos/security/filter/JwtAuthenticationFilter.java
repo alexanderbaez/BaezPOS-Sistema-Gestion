@@ -29,6 +29,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final CustomUserDetailsService userDetailsService;
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return path.equals("/") ||
+                path.equals("/login.html") ||
+                path.startsWith("/api/v1/auth/pc-id") ||             // Ignorar en validación JWT
+                path.startsWith("/api/v1/auth/validar-llave-maestra") || // Ignorar en validación JWT
+                path.startsWith("/api/v1/auth/authenticate") ||
+                path.startsWith("/api/v1/auth/setup-status") ||
+                path.startsWith("/css/") ||
+                path.startsWith("/js/") ||
+                path.startsWith("/images/") ||
+                path.endsWith(".js") ||
+                path.endsWith(".css") ||
+                path.equals("/favicon.ico");
+    }
+    @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
@@ -45,48 +61,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String jwt = authHeader.substring(7);
         try {
             final String userEmail = jwtService.extractUsername(jwt);
-
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-
-                // 1. CARGA SEGURA: Cargamos como UserDetails primero
                 UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
-
-                // 2. VALIDACIÓN: Si es nuestro UserPrincipal, seguimos
                 if (userDetails instanceof UserPrincipal userPrincipal) {
-
                     if (jwtService.isTokenValid(jwt, userPrincipal.getUsername())) {
-
-                        // Extraemos roles del JWT
-                        List<String> roles = jwtService.extractClaim(jwt, claims ->
-                                (List<String>) claims.get("authorities"));
-
-                        // Verificación de cuenta activa (excepto SuperAdmin)
-                        boolean isSuperAdmin = roles != null && roles.contains("ROLE_SUPER_ADMIN");
-                        if (!isSuperAdmin && !userPrincipal.isEnabled()) {
+                        if (!userPrincipal.isEnabled()) {
                             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                            response.setContentType("application/json");
-                            response.getWriter().write("{\"error\": \"CUENTA_SUSPENDIDA\"}");
                             return;
                         }
-
+                        List<String> roles = jwtService.extractClaim(jwt, claims ->
+                                (List<String>) claims.get("authorities"));
                         var authorities = roles.stream()
                                 .map(SimpleGrantedAuthority::new)
                                 .collect(Collectors.toList());
-
-                        // 3. CREACIÓN DEL TOKEN: Usamos userPrincipal (el objeto completo)
                         UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                                userPrincipal,
-                                null,
-                                authorities
-                        );
-
+                                userPrincipal, null, authorities);
                         authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                         SecurityContextHolder.getContext().setAuthentication(authToken);
                     }
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error en JwtFilter: " + e.getMessage());
+            logger.error("Error en validación de JWT: " + e.getMessage());
         }
         filterChain.doFilter(request, response);
     }

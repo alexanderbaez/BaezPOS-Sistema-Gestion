@@ -52,10 +52,10 @@
         <hr class="text-white">
     </div>
     <div class="nav flex-column px-3 gap-1">
-        <a href="dashboard.html" class="nav-link text-white rounded p-2">
+        <a href="dashboard.html" class="nav-link only-admin text-white rounded p-2">
             <i class="bi bi-speedometer2 me-2"></i> Dashboard
         </a>
-        <a href="productos.html" class="nav-link text-white rounded p-2">
+        <a href="productos.html" class="nav-link only-admin text-white rounded p-2">
             <i class="bi bi-box-seam me-2"></i> Productos
         </a>
         <a href="ventas.html" class="nav-link text-white rounded p-2">
@@ -64,13 +64,17 @@
         <a href="clientes.html" class="nav-link text-white rounded p-2">
             <i class="bi bi-people me-2"></i> Clientes (Libreta)
         </a>
-        <a href="historial.html" class="nav-link text-white rounded p-2">
+        <a href="historial.html" class="nav-link only-admin text-white rounded p-2">
             <i class="bi bi-people me-2"></i> Historial de Ventas
         </a>
-        <a href="perfil.html" class="nav-link text-white rounded p-2 active">
+        <a href="perfil.html" class="nav-link only-admin text-white rounded p-2 active">
             <i class="bi bi-shop me-2"></i> Mi Negocio
         </a>
-        <a href="#" class="nav-link text-danger mt-5 p-2" onclick="cerrarSesion()">
+        
+    <a href="empleados.html" class="nav-link text-white rounded p-2 only-admin">
+      <i class="bi bi-person-badge-fill me-2"></i> Empleados
+    </a>
+    <a href="#" class="nav-link text-danger mt-5 p-2" onclick="cerrarSesion()">
             <i class="bi bi-box-arrow-left me-2"></i> Salir
         </a>
     </div>
@@ -152,5 +156,6 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script src="gastos.js"></script>
+<script src="auth.js"></script>
 </body>
 </html>

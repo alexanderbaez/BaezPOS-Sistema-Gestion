@@ -1,16 +1,13 @@
 package com.baez.baezpos.product.entity;
 
-import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.SQLDelete;
-import org.hibernate.annotations.SQLRestriction;
-
 
 @Entity
 @Table(name = "categories", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"name", "company_id"})
+        @UniqueConstraint(columnNames = {"name"}) // Unicidad local por nombre
 })
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
@@ -30,8 +27,4 @@ public class Category extends BaseEntity {
 
     @Column(nullable = false)
     private Boolean active = true;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
-    private Company company;
 }

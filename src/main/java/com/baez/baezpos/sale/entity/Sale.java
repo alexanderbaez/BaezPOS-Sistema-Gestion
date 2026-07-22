@@ -1,21 +1,17 @@
 package com.baez.baezpos.sale.entity;
 
-import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import com.baez.baezpos.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
 @Table(name = "sales")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
+@Getter @Setter
+@NoArgsConstructor @AllArgsConstructor
 @Builder
 public class Sale extends BaseEntity {
 
@@ -24,31 +20,53 @@ public class Sale extends BaseEntity {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
-    private Company company;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false)
+    @Column(name = "sale_date", nullable = false)
     private LocalDateTime saleDate;
 
-    // Este total debe ser el FINAL (Subtotal de items - descuento)
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal total;
 
-    // NUEVO: Campo para persistir el descuento aplicado en PESOS
     @Column(nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal discount = BigDecimal.ZERO;
 
-    @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "sale", fetch = FetchType.EAGER, cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SaleItem> items;
 
+    @Column(name = "payment_method")
     private String paymentMethod;
 
     @Column(nullable = false)
     @Builder.Default
-    private Boolean canceled = false; // true si la venta fue anulada
+    private Boolean canceled = false;
+
+    // ==========================================
+    // NUEVOS CAMPOS PARA ARCA / AFIP (PASO 1)
+    // ==========================================
+    @Column(name = "cae", length = 14)
+    @Builder.Default
+    private String cae = null;
+
+    @Column(name = "cae_vto")
+    @Builder.Default
+    private String caeVto = null;
+
+    @Column(name = "tipo_comprobante")
+    @Builder.Default
+    private String tipoComprobante = "TICKET INTERNO";
+
+    @Column(name = "nro_comprobante")
+    @Builder.Default
+    private String nroComprobante = null;
+
+    @Column(precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal surcharge = BigDecimal.ZERO;
+
+    @Column(name = "surcharge_rate", precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal surchargeRate = BigDecimal.ZERO;
 }

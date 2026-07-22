@@ -1,8 +1,8 @@
 package com.baez.baezpos.product.service.Impl;
 
-import com.baez.baezpos.company.repository.CompanyRepository;
 import com.baez.baezpos.product.dto.ProductRequestDTO;
 import com.baez.baezpos.product.dto.ProductResponseDTO;
+import com.baez.baezpos.product.entity.Category;
 import com.baez.baezpos.product.entity.Product;
 import com.baez.baezpos.product.repository.CategoryRepository;
 import com.baez.baezpos.product.repository.ProductRepository;
@@ -20,46 +20,36 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
-    private final CompanyRepository companyRepository;
 
     @Override
     @Transactional
-    public ProductResponseDTO createProduct(ProductRequestDTO dto, Long companyId) {
-        // 1. Buscamos el producto existente por BARCODE y COMPANY (sin filtrar por active)
-        Optional<Product> existingProduct = productRepository.findByBarcodeAndCompanyId(dto.barcode(), companyId);
+    public ProductResponseDTO createProduct(ProductRequestDTO dto) {
+        // 1. Buscamos si ya existe por código de barras (solo si el código no está vacío)
+        Optional<Product> existingProduct = Optional.empty();
+        if (dto.barcode() != null && !dto.barcode().trim().isEmpty()) {
+            existingProduct = productRepository.findByBarcode(dto.barcode());
+        }
 
         if (existingProduct.isPresent()) {
-            Product productEncontrado = existingProduct.get(); // <--- Este objeto YA TIENE EL ID
+            Product productEncontrado = existingProduct.get();
 
             if (productEncontrado.getActive()) {
                 throw new RuntimeException("El producto ya está activo en el sistema.");
             }
 
-            // 2. REANIMACIÓN: Actualizamos los datos del objeto que ya tiene ID
+            // 2. REANIMACIÓN: Actualizamos el producto borrado anteriormente
             var category = categoryRepository.findById(dto.categoryId())
-                    .filter(c -> c.getCompany().getId().equals(companyId))
                     .orElseThrow(() -> new RuntimeException("Categoría no válida"));
 
-            productEncontrado.setName(dto.name());
-            productEncontrado.setDescription(dto.description());
-            productEncontrado.setCost(dto.cost());
-            productEncontrado.setPrice(dto.price());
-            productEncontrado.setStock(dto.stock());
-            productEncontrado.setMinStock(dto.minStock());
-            productEncontrado.setCategory(category);
-            productEncontrado.setActive(true); // <--- Lo activamos
+            updateProductData(productEncontrado, dto, category);
+            productEncontrado.setActive(true);
 
-            // Al usar save() sobre un objeto recuperado de la DB, Hibernate hace un UPDATE
             return mapToResponseDTO(productRepository.save(productEncontrado));
         }
 
-        // 3. Solo si no existía absolutamente nada, usamos el Builder para un nuevo INSERT
+        // 3. Crear nuevo Producto
         var category = categoryRepository.findById(dto.categoryId())
-                .filter(c -> c.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Categoría no válida"));
-
-        var company = companyRepository.findById(companyId)
-                .orElseThrow(() -> new RuntimeException("Empresa no encontrada"));
 
         Product nuevoProduct = Product.builder()
                 .name(dto.name())
@@ -70,7 +60,6 @@ public class ProductServiceImpl implements ProductService {
                 .stock(dto.stock())
                 .minStock(dto.minStock())
                 .category(category)
-                .company(company)
                 .active(true)
                 .build();
 
@@ -78,92 +67,93 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public List<ProductResponseDTO> getAllProducts(Long companyId) {
-        // Usamos el método que filtra por active=true
-        return productRepository.findByCompanyIdAndActiveTrue(companyId).stream()
+    @Transactional(readOnly = true)
+    public List<ProductResponseDTO> getAllProducts() {
+        // Usamos el nuevo método con JOIN FETCH
+        return productRepository.findByActiveTrueWithCategory().stream()
                 .map(this::mapToResponseDTO)
                 .toList();
     }
 
     @Override
-    public ProductResponseDTO getProductById(Long id, Long companyId) {
+    public ProductResponseDTO getProductById(Long id) {
         return productRepository.findById(id)
-                .filter(p -> p.getCompany().getId().equals(companyId))
                 .map(this::mapToResponseDTO)
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
     }
 
     @Override
     @Transactional
-    public ProductResponseDTO updateProduct(Long id, ProductRequestDTO dto, Long companyId) {
+    public ProductResponseDTO updateProduct(Long id, ProductRequestDTO dto) {
         Product product = productRepository.findById(id)
-                .filter(p -> p.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
 
         var category = categoryRepository.findById(dto.categoryId())
-                .filter(c -> c.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Categoría no válida"));
 
-        product.setName(dto.name());
-        product.setDescription(dto.description());
-        product.setBarcode(dto.barcode());
-        product.setCost(dto.cost());
-        product.setPrice(dto.price());
-        product.setStock(dto.stock());
-        product.setMinStock(dto.minStock());
-        product.setCategory(category);
-
+        updateProductData(product, dto, category);
         return mapToResponseDTO(productRepository.save(product));
+    }
+
+    // Método auxiliar para evitar repetir código
+    private void updateProductData(Product p, ProductRequestDTO dto, Category cat) {
+        p.setName(dto.name());
+        p.setDescription(dto.description());
+        p.setBarcode(dto.barcode());
+        p.setCost(dto.cost());
+        p.setPrice(dto.price());
+        p.setStock(dto.stock());
+        p.setMinStock(dto.minStock());
+        p.setCategory(cat);
     }
 
     @Override
     @Transactional
-    public void deleteProduct(Long id, Long companyId) {
+    public void deleteProduct(Long id) {
         Product product = productRepository.findById(id)
-                .filter(p -> p.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
-
-        // BORRADO LÓGICO
         product.setActive(false);
         productRepository.save(product);
     }
 
     @Override
-    public Optional<ProductResponseDTO> getByBarcode(String barcode, Long companyId) {
-        return productRepository.findByBarcodeAndCompanyId(barcode, companyId)
-                .map(this::mapToResponseDTO);
-    }
-
-    private ProductResponseDTO mapToResponseDTO(Product p) {
-        return new ProductResponseDTO(
-                p.getId(),
-                p.getName(),
-                p.getCategory().getName(),
-                p.getCategory().getId(), // Mapeamos el ID
-                p.getPrice(),
-                p.getCost(),            // Mapeamos el costo
-                p.getStock(),
-                p.getMinStock(),        // Mapeamos el mínimo
-                p.getBarcode()
-        );
+    public Optional<ProductResponseDTO> getByBarcode(String barcode) {
+        return productRepository.findByBarcode(barcode).map(this::mapToResponseDTO);
     }
 
     @Override
-    public List<ProductResponseDTO> getDeletedProducts(Long companyId) {
-        return productRepository.findByCompanyIdAndActiveFalse(companyId).stream()
+    @Transactional(readOnly = true) // Agregado para getDeleted
+    public List<ProductResponseDTO> getDeletedProducts() {
+        return productRepository.findByActiveFalseWithCategory().stream()
                 .map(this::mapToResponseDTO)
                 .toList();
     }
 
     @Override
     @Transactional
-    public ProductResponseDTO activateProduct(Long id, Long companyId) {
-        // Buscamos el producto sin importar si active es false
+    public ProductResponseDTO activateProduct(Long id) {
         Product product = productRepository.findById(id)
-                .filter(p -> p.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
-
         product.setActive(true);
         return mapToResponseDTO(productRepository.save(product));
+    }
+
+    // FIX DE SEGURIDAD EN EL MAPEADOR
+    private ProductResponseDTO mapToResponseDTO(Product p) {
+        // Verificamos nulos para evitar NullPointerException si un producto no tiene categoría
+        String catName = (p.getCategory() != null) ? p.getCategory().getName() : "Sin Categoría";
+        Long catId = (p.getCategory() != null) ? p.getCategory().getId() : null;
+
+        return new ProductResponseDTO(
+                p.getId(),
+                p.getName(),
+                catName,
+                catId,
+                p.getPrice(),
+                p.getCost(),
+                p.getStock(),
+                p.getMinStock(),
+                p.getBarcode()
+        );
     }
 }

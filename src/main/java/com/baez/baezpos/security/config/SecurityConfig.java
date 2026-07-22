@@ -5,6 +5,7 @@ import com.baez.baezpos.security.service.CustomUserDetailsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -35,13 +36,27 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf -> csrf.disable()) // Deshabilitado para permitir el POST de la llave
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .formLogin(form -> form.disable())
+                .httpBasic(basic -> basic.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
+                        // RECURSOS PÚBLICOS Y NUEVOS ENDPOINTS DE HARDWARE
+                        .requestMatchers("/", "/login.html", "/index.html", "/*.html", "/css/**", "/js/**", "/images/**", "/*.js", "/*.css", "/favicon.ico", "/error").permitAll()
+                        .requestMatchers("/api/v1/auth/authenticate", "/api/v1/auth/setup-status", "/api/v1/auth/setup").permitAll()
+                        .requestMatchers("/api/v1/auth/pc-id", "/api/v1/auth/validar-llave-maestra").permitAll() // <-- ACCESO LIBRE
+
+                        // (Resto de tus reglas de roles...)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/my-company/profile").hasAnyRole("ADMIN", "VENDEDOR")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/products/**").hasAnyRole("ADMIN", "VENDEDOR")
+                        .requestMatchers("/api/v1/sales/**").hasAnyRole("ADMIN", "VENDEDOR")
+                        .requestMatchers("/api/v1/customers/**").hasAnyRole("ADMIN", "VENDEDOR")
+                        .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/inventory/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // CAMBIO AQUÍ: Debe ser la variable inyectada (j minúscula)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -63,19 +78,10 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-
-        // 1. Permitimos CUALQUIER origen para que dejes de renegar con los puertos
         config.setAllowedOriginPatterns(List.of("*"));
-
-        // 2. Permitimos todos los métodos
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-
-        // 3. Permitimos todos los headers que manda el navegador
         config.setAllowedHeaders(List.of("*"));
-
-        // 4. Importante para que el Token pase sin problemas
         config.setAllowCredentials(true);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;

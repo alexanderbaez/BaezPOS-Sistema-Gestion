@@ -4,7 +4,6 @@ import com.baez.baezpos.sale.dto.BoxReportDTO;
 import com.baez.baezpos.sale.dto.ChartDataDTO;
 import com.baez.baezpos.sale.dto.SaleRequestDTO;
 import com.baez.baezpos.sale.dto.SaleResponseDTO;
-import com.baez.baezpos.sale.entity.Sale;
 import com.baez.baezpos.sale.service.SaleService.SaleService;
 import com.baez.baezpos.security.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -28,15 +27,9 @@ public class SaleController {
 
     @PostMapping
     public ResponseEntity<SaleResponseDTO> create(@RequestBody SaleRequestDTO saleDTO) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
         Long userId = SecurityUtils.getCurrentUserId();
-
-        log.info("REST: Creando venta - Empresa: {}, Usuario: {}", companyId, userId);
-
-        return new ResponseEntity<>(
-                saleService.createSale(saleDTO, companyId, userId),
-                HttpStatus.CREATED
-        );
+        log.info("REST: Creando venta - Usuario: {}", userId);
+        return new ResponseEntity<>(saleService.createSale(saleDTO, userId), HttpStatus.CREATED);
     }
 
     @GetMapping
@@ -44,42 +37,30 @@ public class SaleController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate desde,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate hasta) {
 
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        if (desde == null) desde = LocalDate.now();
+        if (hasta == null) hasta = LocalDate.now();
 
-        // LOGS PARA DEPURAR (Miralos en la consola de IntelliJ)
-        log.info("Historial solicitado - Empresa: {}, Desde: {}, Hasta: {}", companyId, desde, hasta);
-
-        // Si el frontend no manda fechas, buscamos las de HOY por defecto
-        if (desde == null || hasta == null) {
-            desde = LocalDate.now();
-            hasta = LocalDate.now();
-        }
-
-        List<SaleResponseDTO> ventas = saleService.getSalesByDateRange(desde, hasta, companyId);
-        log.info("Ventas encontradas: {}", ventas.size());
-
-        return ResponseEntity.ok(ventas);
+        return ResponseEntity.ok(saleService.getSalesByDateRange(desde, hasta));
     }
 
-    // --- CORREGIDO: Ahora usa el ID del Token ---
+    @GetMapping("/{id}")
+    public ResponseEntity<SaleResponseDTO> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(saleService.getSaleById(id));
+    }
+
     @GetMapping("/report/box")
-    public ResponseEntity<BoxReportDTO> getBoxReport() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
-        return ResponseEntity.ok(saleService.getBoxReport(companyId));
+    public ResponseEntity<BoxReportDTO> getBoxReport(@RequestParam(required = false, defaultValue = "hoy") String period) {
+        return ResponseEntity.ok(saleService.getBoxReport(period));
     }
 
-    // --- CORREGIDO: Ahora usa el ID del Token ---
     @GetMapping("/report/chart")
     public ResponseEntity<List<ChartDataDTO>> getSalesChartData() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
-        return ResponseEntity.ok(saleService.getSalesChartData(companyId));
+        return ResponseEntity.ok(saleService.getSalesChartData());
     }
 
-    // --- CORREGIDO: Ahora usa el ID del Token ---
     @PutMapping("/{id}/cancel")
     public ResponseEntity<Void> cancelSale(@PathVariable Long id) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
-        saleService.cancelSale(id, companyId);
+        saleService.cancelSale(id);
         return ResponseEntity.noContent().build();
     }
 }

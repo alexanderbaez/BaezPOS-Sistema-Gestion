@@ -1,6 +1,7 @@
 package com.baez.baezpos.company.service.CompanyServiceImpl;
 
 import com.baez.baezpos.company.dto.CompanyDTO;
+import com.baez.baezpos.company.dto.MasterRegistrationRequest;
 import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.company.repository.CompanyRepository;
 import com.baez.baezpos.company.service.CompanyService.CompanyService;
@@ -26,152 +27,138 @@ import java.util.stream.Collectors;
 public class CompanyServiceImpl implements CompanyService {
 
     private final CompanyRepository companyRepository;
-    private final UserRepository userRepository; // Inyectado
-    private final PasswordEncoder passwordEncoder; // Inyectado
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    // --- MÉTODOS DE EMPRESA ---
+    // Método auxiliar para obtener la única configuración del local
+    private Company getLocalConfig() {
+        return companyRepository.findAll().stream()
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Debe configurar los datos del local"));
+    }
 
     @Override
     @Transactional(readOnly = true)
     public CompanyDTO getAuthenticatedCompany() {
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        Company company = companyRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Empresa no encontrada"));
-        return convertToDTOClient(company);
+        return convertToDTOClient(getLocalConfig());
     }
 
     @Override
     @Transactional
     public CompanyDTO updateAuthenticatedCompany(CompanyDTO dto) {
-        Company company = getAuthenticatedEntity();
+        Company company = getLocalConfig();
         company.setName(dto.getName());
         company.setAddress(dto.getAddress());
         company.setPhone(dto.getPhone());
+        company.setEmail(dto.getEmail()); // Se agrega la actualización del email
+        company.setTaxId(dto.getTaxId());
         company.setTicketMessage(dto.getTicketMessage());
+
+        // --- GUARDAR ESTADO Y DATOS FISCALES ---
+        company.setHasTaxData(dto.getHasTaxData() != null ? dto.getHasTaxData() : true);
+        company.setIibb(dto.getIibb());
+        company.setInicioActividades(dto.getInicioActividades());
+        company.setCondicionIva(dto.getCondicionIva());
+
         return convertToDTOClient(companyRepository.save(company));
     }
 
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> verificarEstadoSuscripcionAutenticada() {
-        // Usamos el método privado que ya tenés para buscar la entidad
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
-
-        Company company = user.getCompany();
+        Company company = getLocalConfig();
         LocalDate hoy = LocalDate.now();
         boolean isExpired = company.getExpirationDate() != null && hoy.isAfter(company.getExpirationDate());
 
-        // --- EL BLOQUEO DE ALEXANDER ---
-        // Si la empresa no está activa O la fecha ya pasó
         if (Boolean.FALSE.equals(company.getActive()) || isExpired) {
-            // Lanzamos una excepción que Spring convertirá en un error para el JS
             throw new org.springframework.security.access.AccessDeniedException("CUENTA_SUSPENDIDA");
         }
-
-        // Si todo está OK, devolvemos los datos normales
-        long dias = (company.getExpirationDate() != null) ?
-                java.time.temporal.ChronoUnit.DAYS.between(hoy, company.getExpirationDate()) : 0;
 
         Map<String, Object> res = new HashMap<>();
         res.put("companyName", company.getName());
         res.put("vencido", false);
-        res.put("diasRestantes", dias);
         res.put("active", true);
         return res;
-    }
-
-    // --- MÉTODOS DE EMPLEADOS (CAJEROS) ---
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<UserDTO> getMyEmployees() {
-        User admin = getAuthenticatedUser();
-        return userRepository.findAllByCompanyId(admin.getCompany().getId())
-                .stream()
-                .filter(u -> u.getRole() == Role.CAJERO) // Solo cajeros
-                .map(this::convertToUserDTO)
-                .collect(Collectors.toList());
     }
 
     @Override
     @Transactional
     public UserDTO createEmployee(UserDTO dto) {
-        User admin = getAuthenticatedUser();
-        User employee = User.builder()
-                .name(dto.getName())
-                .email(dto.getEmail())
-                .password(passwordEncoder.encode(dto.getPassword()))
-                .role(Role.CAJERO)
-                .company(admin.getCompany())
-                .active(true)
-                .build();
-        return convertToUserDTO(userRepository.save(employee));
-    }
-
-    @Override
-    @Transactional
-    public UserDTO updateEmployee(Long id, UserDTO dto) {
-        User admin = getAuthenticatedUser();
-        User employee = userRepository.findById(id)
-                .filter(u -> u.getCompany().getId().equals(admin.getCompany().getId()))
-                .orElseThrow(() -> new ResourceNotFoundException("No pertenece a su empresa"));
-
+        User employee = new User();
         employee.setName(dto.getName());
-        employee.setActive(dto.getActive());
-        if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
-            employee.setPassword(passwordEncoder.encode(dto.getPassword()));
-        }
+        employee.setEmail(dto.getEmail());
+        employee.setPassword(passwordEncoder.encode(dto.getPassword()));
+        employee.setRole(Role.VENDEDOR);
+        employee.setActive(true);
         return convertToUserDTO(userRepository.save(employee));
     }
 
     @Override
-    @Transactional
-    public void deleteEmployee(Long id) {
-        User admin = getAuthenticatedUser();
-        User employee = userRepository.findById(id)
-                .filter(u -> u.getCompany().getId().equals(admin.getCompany().getId()))
-                .orElseThrow(() -> new ResourceNotFoundException("Acceso denegado"));
-        userRepository.delete(employee);
+    @Transactional(readOnly = true)
+    public List<UserDTO> getMyEmployees() {
+        return userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.VENDEDOR)
+                .map(this::convertToUserDTO)
+                .collect(Collectors.toList());
     }
-
-    @Override
-    public void validarAcceso(Long companyId) {
-        Company company = companyRepository.findById(companyId).orElseThrow();
-        if (!company.getActive() || (company.getExpirationDate() != null && company.getExpirationDate().isBefore(LocalDate.now()))) {
-            throw new RuntimeException("ACCESO DENEGADO");
-        }
-    }
-
-    // --- MÉTODOS PRIVADOS DE APOYO ---
 
     private User getAuthenticatedUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         return userRepository.findByEmail(email).orElseThrow();
     }
 
-    private Company getAuthenticatedEntity() {
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        return companyRepository.findByEmail(email).orElseThrow();
+    private CompanyDTO convertToDTOClient(Company entity) {
+        CompanyDTO dto = new CompanyDTO();
+        dto.setId(entity.getId());
+        dto.setName(entity.getName());
+        dto.setAddress(entity.getAddress());
+        dto.setPhone(entity.getPhone());
+        dto.setEmail(entity.getEmail()); // Asignación de email solucionada
+        dto.setTaxId(entity.getTaxId());
+        dto.setTicketMessage(entity.getTicketMessage());
+        dto.setExpirationDate(entity.getExpirationDate());
+        dto.setActive(entity.getActive());
+
+        // --- RETORNAR ESTADO Y DATOS FISCALES CON TRATAMIENTO DE NULOS ---
+        dto.setHasTaxData(entity.getHasTaxData() != null ? entity.getHasTaxData() : true);
+        dto.setIibb(entity.getIibb());
+        dto.setInicioActividades(entity.getInicioActividades());
+        dto.setCondicionIva(entity.getCondicionIva());
+
+        return dto;
     }
 
-    private CompanyDTO convertToDTOClient(Company entity) {
-        return CompanyDTO.builder()
-                .id(entity.getId()).name(entity.getName()).address(entity.getAddress())
-                .phone(entity.getPhone()).taxId(entity.getTaxId()).ticketMessage(entity.getTicketMessage())
-                .expirationDate(entity.getExpirationDate()).email(entity.getEmail())
-                .active(entity.getActive()).build();
+    @Transactional
+    public void setupInitialBusiness(MasterRegistrationRequest req) {
+        Company company = Company.builder()
+                .name(req.getCompanyName())
+                .taxId(req.getTaxId())
+                .address(req.getAddress())
+                .hasTaxData(true)
+                .build();
+        companyRepository.save(company);
+
+        User owner = User.builder()
+                .name(req.getOwnerName())
+                .email(req.getOwnerEmail())
+                .password(passwordEncoder.encode(req.getOwnerPassword()))
+                .role(Role.ADMIN)
+                .active(true)
+                .build();
+        userRepository.save(owner);
     }
 
     private UserDTO convertToUserDTO(User user) {
-        return UserDTO.builder()
-                .id(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .role(user.getRole().name())
-                .active(user.getActive())
-                // No devolvemos el password por seguridad
-                .build();
+        UserDTO dto = new UserDTO();
+        dto.setId(user.getId());
+        dto.setName(user.getName());
+        dto.setEmail(user.getEmail());
+        dto.setRole(user.getRole().toString());
+        dto.setActive(user.getActive());
+        return dto;
     }
+
+    @Override public UserDTO updateEmployee(Long id, UserDTO dto) { return null; }
+    @Override public void deleteEmployee(Long id) { }
+    @Override public void validarAcceso(Long id) { }
 }

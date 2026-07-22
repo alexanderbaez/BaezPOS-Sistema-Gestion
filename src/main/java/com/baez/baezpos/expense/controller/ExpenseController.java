@@ -3,7 +3,6 @@ package com.baez.baezpos.expense.controller;
 import com.baez.baezpos.expense.dto.ExpenseRequestDTO;
 import com.baez.baezpos.expense.entity.Expense;
 import com.baez.baezpos.expense.service.ExpenseService;
-import com.baez.baezpos.security.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -11,9 +10,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/expenses") // Estándar v1
+@RequestMapping("/api/v1/expenses")
 @RequiredArgsConstructor
-@Slf4j // Agregamos para auditoría
+@Slf4j
 @CrossOrigin(origins = "*")
 public class ExpenseController {
 
@@ -21,13 +20,12 @@ public class ExpenseController {
 
     @PostMapping
     public ResponseEntity<Expense> create(@RequestBody ExpenseRequestDTO dto) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
-        log.info("Finanzas: Registrando gasto para Empresa ID: {}", companyId);
-        return ResponseEntity.ok(expenseService.createExpense(dto, companyId));
+        log.info("LOCAL: Registrando nuevo gasto por: {}", dto.amount());
+        return ResponseEntity.ok(expenseService.createExpense(dto));
     }
 
     @GetMapping
     public ResponseEntity<List<Expense>> list() {
-        return ResponseEntity.ok(expenseService.getAllByCompany(SecurityUtils.getCurrentCompanyId()));
+        return ResponseEntity.ok(expenseService.getAllExpenses());
     }
 }

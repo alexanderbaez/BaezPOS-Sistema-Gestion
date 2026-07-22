@@ -7,49 +7,58 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
   <style>
-    :root { --sidebar-width: 260px; --primary-color: #1e3a8a; }
-    body { background-color: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
-    #sidebar { width: var(--sidebar-width); height: 100vh; position: fixed; background: var(--primary-color); z-index: 1000; }
-    #content { margin-left: var(--sidebar-width); min-height: 100vh; padding: 2rem; }
-    .nav-link { color: rgba(255,255,255,0.7); padding: 12px 20px; border-radius: 8px; margin: 4px 12px; display: flex; align-items: center; text-decoration: none; }
-    .nav-link:hover, .nav-link.active { color: white; background: rgba(255,255,255,0.1); }
-    .card { border-radius: 20px; border: none; }
-    .preview-ticket { border: 2px dashed #cbd5e1 !important; background: white; border-radius: 20px; }
+    :root {
+      --sidebar-width: 250px;
+      --primary-color: #1e3a8a;
+      --primary-blue: #0d6efd;
+    }
+    body {
+      background-color: #f1f5f9;
+      font-family: 'Segoe UI', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Contenedor principal alineado al sidebar dinámico */
+    #content {
+      margin-left: var(--sidebar-width);
+      min-height: 100vh;
+      padding: 2rem;
+      transition: all 0.3s;
+    }
+
+    .card {
+      border-radius: 20px;
+      border: none;
+    }
+    .preview-ticket {
+      border: 2px dashed #cbd5e1 !important;
+      background: white;
+      border-radius: 20px;
+    }
+
+    /* Comportamiento responsivo unificado para el sidebar dinámico */
+    @media (max-width: 768px) {
+        #sidebar { left: calc(var(--sidebar-width) * -1) !important; }
+        #content { margin-left: 0; width: 100%; }
+        #sidebar.active { left: 0 !important; }
+    }
+
+    .nav-link.active-page {
+      background-color: var(--primary-blue) !important;
+      font-weight: bold;
+      color: white !important;
+    }
   </style>
 </head>
 <body>
 
-<nav id="sidebar" class="bg-dark vh-100 shadow">
-  <div class="p-4 text-center">
-    <h3 class="text-white fw-bold">BaezPOS</h3>
-    <hr class="text-white">
-  </div>
-  <div class="nav flex-column px-3 gap-1">
-    <a href="dashboard.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-speedometer2 me-2"></i> Dashboard
-    </a>
-    <a href="productos.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-box-seam me-2"></i> Productos
-    </a>
-    <a href="ventas.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-cart me-2"></i> Punto de Venta
-    </a>
-    <a href="clientes.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-people me-2"></i> Clientes (Libreta)
-    </a>
-    <a href="historial.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-people me-2"></i> Historial de Ventas
-    </a>
-    <a href="perfil.html" class="nav-link text-white rounded p-2 active">
-      <i class="bi bi-shop me-2"></i> Mi Negocio
-    </a>
-    <a href="#" class="nav-link text-danger mt-5 p-2" onclick="cerrarSesion()">
-      <i class="bi bi-box-arrow-left me-2"></i> Salir
-    </a>
-  </div>
-</nav>
+<div id="sidebar-container"></div>
 
 <div id="content">
+  <button type="button" id="sidebarCollapse" class="btn btn-outline-primary d-md-none mb-3">
+    <i class="bi bi-list"></i>
+  </button>
+
   <div id="alertaVencimiento" class="alert alert-danger d-none border-0 shadow-sm mb-4" style="border-radius: 15px;">
     <div class="d-flex align-items-center">
       <i class="bi bi-exclamation-triangle-fill fs-3 me-3"></i>
@@ -76,28 +85,81 @@
         <form id="formEmpresa">
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="small fw-bold text-muted">Nombre del Negocio</label>
+              <label class="small fw-bold text-muted" for="empNombre">Nombre del Negocio</label>
               <input type="text" id="empNombre" class="form-control bg-light border-0 p-3">
             </div>
             <div class="col-md-6">
-              <label class="small fw-bold text-muted">CUIT / CUIL</label>
+              <label class="small fw-bold text-muted" for="empCuit">CUIT / CUIL</label>
               <input type="text" id="empCuit" class="form-control bg-light border-0 p-3">
             </div>
             <div class="col-md-6">
-              <label class="small fw-bold text-muted">Teléfono</label>
+              <label class="small fw-bold text-muted" for="empTel">Teléfono</label>
               <input type="text" id="empTel" class="form-control bg-light border-0 p-3">
             </div>
             <div class="col-md-6">
-              <label class="small fw-bold text-muted">Correo Electrónico</label>
+              <label class="small fw-bold text-muted" for="empEmail">Correo Electrónico</label>
               <input type="email" id="empEmail" class="form-control bg-light border-0 p-3">
             </div>
             <div class="col-12">
-              <label class="small fw-bold text-muted">Dirección</label>
+              <label class="small fw-bold text-muted" for="empDireccion">Dirección</label>
               <input type="text" id="empDireccion" class="form-control bg-light border-0 p-3">
             </div>
+
+            <!-- INTERRUPTOR/SWITCH PARA ACTIVAR O DESACTIVAR DATOS FISCALES -->
+            <div class="col-12 mt-4">
+              <div class="form-check form-switch p-3 bg-light rounded-3 d-flex align-items-center justify-content-between border">
+                <label class="form-check-label fw-bold text-dark m-0 cursor-pointer" for="checkMostrarFiscal">
+                  <i class="bi bi-receipt me-2 text-primary"></i> Incluir Datos Fiscales y Facturación (ARCA / AFIP)
+                </label>
+                <input class="form-check-input fs-4 m-0" type="checkbox" id="checkMostrarFiscal" checked>
+              </div>
+            </div>
+
+            <!-- CAMPOS FISCALES COMPLETOS PARA ARCA -->
+            <div class="col-md-4">
+              <label class="small fw-bold text-muted" for="empIibb">Nro. Ingresos Brutos (IIBB)</label>
+              <input type="text" id="empIibb" class="form-control bg-light border-0 p-3" placeholder="Exento o Nro Convenio">
+            </div>
+            <div class="col-md-4">
+              <label class="small fw-bold text-muted" for="empInicioAct">Inicio de Actividades</label>
+              <input type="date" id="empInicioAct" class="form-control bg-light border-0 p-3">
+            </div>
+            <div class="col-md-4">
+              <label class="small fw-bold text-muted" for="empIva">Condición Frente al IVA</label>
+              <select id="empIva" class="form-select bg-light border-0 p-3 text-dark">
+                <option value="Responsable Monotributo">Responsable Monotributo</option>
+                <option value="Responsable Inscripto">Responsable Inscripto</option>
+                <option value="Exento">Exento</option>
+              </select>
+            </div>
+
             <div class="col-12">
-              <label class="small fw-bold text-muted">Mensaje en Tickets (Pie de página)</label>
+              <label class="small fw-bold text-muted" for="empTicketMsg">Mensaje en Tickets (Pie de página)</label>
               <textarea id="empTicketMsg" class="form-control bg-light border-0 p-3" rows="3"></textarea>
+            </div>
+          </div>
+
+          <div class="card shadow-sm p-4 mt-4 border-start border-danger border-4">
+            <div class="d-flex align-items-center mb-3">
+              <i class="bi bi-shield-lock fs-4 text-danger me-2"></i>
+              <h5 class="fw-bold m-0">Seguridad de la Cuenta</h5>
+            </div>
+            <p class="text-muted small">Cambiá tu contraseña regularmente para mantener el sistema seguro.</p>
+
+            <div class="row g-3">
+              <div class="col-md-5">
+                <label class="small fw-bold text-muted" for="nuevaPass">Nueva Contraseña</label>
+                <input type="password" id="nuevaPass" class="form-control bg-light border-0 p-3" placeholder="Mínimo 6 caracteres">
+              </div>
+              <div class="col-md-5">
+                <label class="small fw-bold text-muted" for="confirmarPass">Confirmar Contraseña</label>
+                <input type="password" id="confirmarPass" class="form-control bg-light border-0 p-3" placeholder="Repetí la contraseña">
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button type="button" class="btn btn-outline-danger w-100 p-3 fw-bold" onclick="cambiarPassword()">
+                  Actualizar
+                </button>
+              </div>
             </div>
           </div>
 
@@ -114,6 +176,7 @@
       </div>
     </div>
 
+    <!-- VISTA PREVIA DEL TICKET TÉRMICO COMPLETA Y DINÁMICA -->
     <div class="col-md-4">
       <h6 class="fw-bold text-muted small text-uppercase mb-3">Vista Previa de Ticket</h6>
       <div class="card preview-ticket p-4 shadow-sm">
@@ -121,8 +184,20 @@
           <i class="bi bi-shop fs-1 text-primary opacity-25 mb-2"></i>
           <h5 class="fw-bold mb-0" id="previewNombre">Nombre Negocio</h5>
           <p class="mb-0 small text-muted" id="previewDir">Dirección</p>
-          <p class="small text-muted" id="previewTel">Tel: 123456</p>
+          <p class="small text-muted mb-0" id="previewTel">Tel: 123456</p>
+          <!-- ELEMENTO AGREGADO PARA EL EMAIL -->
+          <p class="small text-muted mb-2" id="previewEmail">Email: correo@ejemplo.com</p>
+
+          <!-- Bloque Dinámico Fiscal dentro del Ticket -->
+          <div id="previewBloqueFiscal" class="text-start bg-light p-2 rounded-3 mb-2 border text-dark" style="font-size: 11px; font-family: monospace; line-height: 1.3;">
+            <div><strong>CUIT:</strong> <span id="previewCuit">-</span></div>
+            <div><strong>IIBB:</strong> <span id="previewIibb">-</span></div>
+            <div><strong>Inic. Act:</strong> <span id="previewInicio">-</span></div>
+            <div><strong>Cond. IVA:</strong> <span id="previewIva">-</span></div>
+          </div>
+
           <hr style="border-top: 1px dashed #64748b;">
+          <div id="previewTipoComprobante" class="fw-bold small mb-2 text-dark" style="font-size: 11px; font-family: monospace;">FACTURA C N° 00001-00001234</div>
           <div class="d-flex justify-content-between small text-muted mb-1">
             <span>PRODUCTO X1</span> <span>$500.00</span>
           </div>
@@ -131,6 +206,15 @@
           </div>
           <hr style="border-top: 1px dashed #64748b;">
           <p class="fw-bold fs-4 mb-1">TOTAL: $1700.00</p>
+
+          <!-- Pie Fiscal (QR / CAE) -->
+          <div id="previewPieFiscal">
+            <div class="my-2 p-1 border border-dark rounded d-inline-block bg-white text-dark font-monospace" style="font-size: 10px; font-weight: bold;">
+              [ CÓDIGO QR ARCA AFIP ]
+            </div>
+            <div class="text-start text-dark fw-bold mb-2" style="font-size: 9px; font-family: monospace;">CAE: 76543210987654</div>
+          </div>
+
           <p class="font-monospace small mt-3 text-secondary" id="previewMsg">Gracias por su compra</p>
         </div>
       </div>
@@ -138,7 +222,10 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="sidebar.js"></script>
+<script src="auth.js"></script>
 <script src="perfil.js"></script>
 </body>
 </html>

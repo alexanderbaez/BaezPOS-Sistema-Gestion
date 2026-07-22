@@ -6,15 +6,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Repository
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
-    // Listar todos los clientes de una empresa específica
-    List<Customer> findByCompanyId(Long companyId);
-
-    // Buscar por nombre o DNI dentro de la empresa (Para el buscador del POS)
-    @Query("SELECT c FROM Customer c WHERE c.company.id = :companyId AND " +
+    // Buscar por nombre o DNI (Ya no filtramos por companyId)
+    @Query("SELECT c FROM Customer c WHERE " +
             "(LOWER(c.name) LIKE LOWER(concat('%', :query, '%')) OR c.dniCuit LIKE concat('%', :query, '%'))")
-    List<Customer> searchInCompany(@Param("companyId") Long companyId, @Param("query") String query);
+    List<Customer> searchCustomers(@Param("query") String query);
+
+    @Query("SELECT COALESCE(SUM(c.currentBalance), 0) FROM Customer c")
+    BigDecimal sumAllBalances();
 }

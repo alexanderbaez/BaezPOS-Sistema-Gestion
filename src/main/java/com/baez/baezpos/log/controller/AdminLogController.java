@@ -1,26 +1,23 @@
 package com.baez.baezpos.log.controller;
 
-import com.baez.baezpos.log.entity.AdminLog;
-import com.baez.baezpos.log.repository.AdminLogRepository;
+import com.baez.baezpos.log.entity.SystemLog;
+import com.baez.baezpos.log.repository.SystemLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/superadmin/logs")
+@RequestMapping("/api/v1/logs")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class AdminLogController {
 
-    private final AdminLogRepository logRepository;
+    private final SystemLogRepository logRepository;
 
     @GetMapping
-    //@PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<List<AdminLog>> getLogs() {
-        // Retornamos los últimos logs (puedes limitar a los últimos 50 si quieres)
-        return ResponseEntity.ok(logRepository.findAllByOrderByTimestampDesc());
+    public ResponseEntity<List<SystemLog>> getLogs() {
+        // En local, el dueño ve todo lo que pasó en su sistema
+        return ResponseEntity.ok(logRepository.findTop100ByOrderByTimestampDesc());
     }
 }

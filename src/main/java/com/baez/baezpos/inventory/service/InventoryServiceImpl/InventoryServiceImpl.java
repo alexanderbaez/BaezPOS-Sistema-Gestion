@@ -10,7 +10,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.List;
 
 @Service
@@ -23,18 +22,17 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     @Transactional
-    public InventoryMovement registerMovement(Long productId, Integer quantity, MovementType type, String reason, Long companyId) {
-        // 1. Validar que el producto existe y pertenece a la empresa
+    public InventoryMovement registerMovement(Long productId, Integer quantity, MovementType type, String reason) {
+        // 1. Validar que el producto existe (Ya no filtramos por empresa)
         Product product = productRepository.findById(productId)
-                .filter(p -> p.getCompany().getId().equals(companyId))
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado o acceso denegado."));
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado."));
 
-        // 2. Lógica de Stock según tipo
+        // 2. Lógica de Stock
         if (isNegativeMovement(type)) {
             if (product.getStock() < quantity) {
-                throw new RuntimeException("Stock insuficiente para realizar esta operación. Actual: " + product.getStock());
+                throw new RuntimeException("Stock insuficiente. Actual: " + product.getStock());
             }
-            product.setStock(product.getStock() - quantity); // ANTES ESTABA SUMANDO
+            product.setStock(product.getStock() - quantity);
         } else {
             product.setStock(product.getStock() + quantity);
         }
@@ -47,10 +45,9 @@ public class InventoryServiceImpl implements InventoryService {
                 .quantity(quantity)
                 .reason(reason)
                 .product(product)
-                .company(product.getCompany()) // Asignamos la empresa del producto
                 .build();
 
-        log.info("Movimiento de inventario ({}) registrado para producto: {}", type, productId);
+        log.info("LOCAL: Movimiento {} registrado para: {}", type, product.getName());
         return inventoryRepository.save(movement);
     }
 
@@ -63,18 +60,13 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<InventoryMovement> getProductMovements(Long productId, Long companyId) {
-        // Validamos propiedad antes de devolver lista
-        productRepository.findById(productId)
-                .filter(p -> p.getCompany().getId().equals(companyId))
-                .orElseThrow(() -> new RuntimeException("Acceso denegado a los movimientos de este producto."));
-
-        return inventoryRepository.findByProductId(productId);
+    public List<InventoryMovement> getProductMovements(Long productId) {
+        return inventoryRepository.findByProductIdOrderByCreatedAtDesc(productId);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<InventoryMovement> getRecentMovementsByCompany(Long companyId) {
-        return inventoryRepository.findByCompanyIdOrderByCreatedAtDesc(companyId);
+    public List<InventoryMovement> getAllRecentMovements() {
+        return inventoryRepository.findAllByOrderByCreatedAtDesc();
     }
 }

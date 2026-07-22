@@ -1,6 +1,5 @@
 package com.baez.baezpos.inventory.entity;
 
-import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.product.entity.Product;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import jakarta.persistence.*;
@@ -30,7 +29,4 @@ public class InventoryMovement extends BaseEntity {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
-    private Company company;
 }

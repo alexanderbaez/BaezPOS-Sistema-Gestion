@@ -8,18 +8,18 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        :root { --sidebar-width: 260px; --primary-color: #1e3a8a; }
+        :root { --sidebar-width: 250px; --primary-color: #1e3a8a; --primary-blue: #0d6efd; }
         body { background-color: #f1f5f9; font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
-        #sidebar { width: var(--sidebar-width); height: 100vh; position: fixed; background: var(--primary-color); z-index: 1000; }
-        #content { margin-left: var(--sidebar-width); min-height: 100vh; }
-        .nav-link { color: rgba(255,255,255,0.7); padding: 12px 20px; border-radius: 8px; margin: 4px 12px; display: flex; align-items: center; text-decoration: none; }
-        .nav-link:hover, .nav-link.active { color: white; background: rgba(255,255,255,0.1); }
+
+        /* Contenedor alineado con el sidebar dinámico */
+        #content { margin-left: var(--sidebar-width); min-height: 100vh; transition: all 0.3s; }
+
         .card-pos { height: calc(100vh - 100px); border: none; border-radius: 15px; }
         .total-display { font-size: 3.5rem; font-weight: 900; color: var(--primary-color); line-height: 1; }
         .table-responsive { height: 400px; overflow-y: auto; }
 
         .metodo-pago { cursor: pointer; border: 2px solid #e2e8f0; border-radius: 10px; transition: 0.2s; padding: 10px; text-align: center; }
-        .metodo-pago.active { border-color: var(--primary-color); background: #eff6ff; color: var(--primary-color); font-weight: bold; }
+        .metodo-pago.active { border-color: var(--primary-blue); background: #eff6ff; color: var(--primary-blue); font-weight: bold; }
         .metodo-pago i { font-size: 1.5rem; }
 
         .sugerencias-box { z-index: 1050; display: none; max-height: 250px; overflow-y: auto; border-radius: 10px; }
@@ -31,25 +31,20 @@
             100% { transform: scale(1); opacity: 1; }
         }
         #alertaSuscripcion .alert { border-radius: 0; border-bottom: 2px solid #f59e0b; }
+
+        /* Comportamiento responsivo unificado para el sidebar dinámico */
+        @media (max-width: 768px) {
+            #sidebar { left: calc(var(--sidebar-width) * -1) !important; }
+            #content { margin-left: 0; width: 100%; }
+            #sidebar.active { left: 0 !important; }
+        }
+
+        .nav-link.active-page { background-color: var(--primary-blue) !important; font-weight: bold; color: white !important; }
     </style>
 </head>
 <body>
 
-<nav id="sidebar" class="bg-dark vh-100 shadow">
-    <div class="p-4 text-center">
-        <h3 class="text-white fw-bold">BaezPOS</h3>
-        <hr class="text-white">
-    </div>
-    <div class="nav flex-column px-3 gap-1">
-        <a href="dashboard.html" class="nav-link text-white rounded p-2"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
-        <a href="productos.html" class="nav-link text-white rounded p-2"><i class="bi bi-box-seam me-2"></i> Productos</a>
-        <a href="ventas.html" class="nav-link text-white rounded p-2 active-page"><i class="bi bi-cart me-2"></i> Punto de Venta</a>
-        <a href="clientes.html" class="nav-link text-white rounded p-2"><i class="bi bi-people me-2"></i> Clientes (Libreta)</a>
-        <a href="historial.html" class="nav-link text-white rounded p-2"><i class="bi bi-clock-history me-2"></i> Historial</a>
-        <a href="perfil.html" class="nav-link text-white rounded p-2"><i class="bi bi-shop me-2"></i> Mi Negocio</a>
-        <a href="#" class="nav-link text-danger mt-5 p-2" onclick="cerrarSesion()"><i class="bi bi-box-arrow-left me-2"></i> Salir</a>
-    </div>
-</nav>
+<div id="sidebar-container"></div>
 
 <div id="content">
     <div id="alertaSuscripcion" class="container-fluid d-none px-0" style="position: sticky; top: 0; z-index: 1060;">
@@ -103,7 +98,22 @@
                 <div class="card card-pos shadow-sm p-4 d-flex flex-column justify-content-between">
                     <div>
                         <h6 class="text-muted mb-1 text-uppercase fw-bold small">Total Final</h6>
-                        <div class="total-display mb-4" id="totalVenta">$0.00</div>
+                        <div class="total-display mb-3" id="totalVenta">$0.00</div>
+
+                        <div class="bg-light p-2 rounded-3 border mb-3">
+                            <label class="small fw-bold text-muted text-uppercase mb-1 d-block" style="font-size: 0.7rem;">Aplicar Descuento</label>
+                            <div class="row g-1">
+                                <div class="col-7">
+                                    <input type="number" id="inputDescuento" class="form-control form-control-sm fw-bold" placeholder="Monto o %" oninput="renderizarCarrito()">
+                                </div>
+                                <div class="col-5">
+                                    <select id="tipoDescuento" class="form-select form-select-sm" onchange="renderizarCarrito()">
+                                        <option value="PESOS">$ Pesos</option>
+                                        <option value="PORCENTAJE">% Porc.</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
 
                         <label class="small fw-bold mb-2 text-muted text-uppercase">Método de Pago</label>
                         <div class="row g-2 mb-3">
@@ -153,6 +163,9 @@
                                 <span class="fw-bold text-muted small">VUELTO:</span>
                                 <span class="h3 mb-0 fw-bold text-success" id="vueltoVenta">$0.00</span>
                             </div>
+                            <button type="button" class="btn btn-outline-secondary btn-sm mt-2" onclick="reimprimirUltimoTicket()">
+                                <i class="bi bi-printer"></i> Reimprimir Último Ticket
+                            </button>
                         </div>
                     </div>
 
@@ -186,7 +199,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script src="sidebar.js"></script>
+
 <script src="licencia-cliente.js"></script>
+<script src="auth.js"></script>
 <script src="ventas.js"></script>
 </body>
 </html>

@@ -6,9 +6,11 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import java.util.List;
 
 public interface UserService extends UserDetailsService {
-    UserResponseDTO createUser(User user); // Recibe Entity (con pass), devuelve DTO (seguro)
+    UserResponseDTO createUser(User user);
     UserResponseDTO getUserById(Long id);
-    List<UserResponseDTO> getAllByCompany(Long companyId);
+    List<UserResponseDTO> getAllUsers(); // Limpio de companyId
     UserResponseDTO updateUser(Long id, User user);
     void deleteUser(Long id);
+    // En UserService.java
+    void updatePasswordOnly(String email, String newPassword);
 }

@@ -7,8 +7,6 @@ import lombok.*;
 
 import java.math.BigDecimal;
 
-// Sale.java se mantiene similar, pero asegúrate de que el total se calcule en el backend
-// SaleItem.java: Agregamos el costo histórico para calcular rentabilidad real luego
 @Entity
 @Table(name = "sale_items")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -19,7 +17,7 @@ public class SaleItem {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sale_id", nullable = false)
-    @JsonBackReference // Evita recursión infinita en JSON
+    @JsonBackReference
     private Sale sale;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -30,10 +28,10 @@ public class SaleItem {
     private Integer quantity;
 
     @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal price; // Precio de venta al momento de la transacción
+    private BigDecimal price; // Precio histórico de venta
 
     @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal cost; // Costo del producto al momento (para reportes de ganancia)
+    private BigDecimal cost; // Costo histórico para calcular rentabilidad
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal subtotal;

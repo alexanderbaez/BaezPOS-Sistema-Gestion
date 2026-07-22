@@ -1,6 +1,5 @@
 package com.baez.baezpos.user.entity;
 
-import com.baez.baezpos.company.entity.Company;
 import com.baez.baezpos.shared.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -8,6 +7,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
@@ -16,7 +16,7 @@ import java.util.List;
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor
 @Builder
-public class User extends BaseEntity implements UserDetails { // <--- CLAVE 1: Implementar UserDetails
+public class User extends BaseEntity implements UserDetails {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -38,16 +38,11 @@ public class User extends BaseEntity implements UserDetails { // <--- CLAVE 1: I
     @Column(nullable = false)
     private Boolean active = true;
 
-    // CLAVE 2: Alexander no tiene empresa, permitimos NULL aquí
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = true)
-    private Company company;
-
-    // --- MÉTODOS OBLIGATORIOS PARA QUE SPRING TE DEJE PASAR ---
+    @Column(name = "password_reset_at")
+    private LocalDateTime passwordResetAt;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        // Le agregamos el prefijo ROLE_ que Spring exige por defecto
         return List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
     }
 

@@ -1,18 +1,36 @@
-// 1. Definimos la base del servidor de Spring Boot
-const URL_SERVIDOR = 'http://localhost:8080';
+/**
+ * BÁEZ POS - GESTIÓN DE INVENTARIO (FULL)
+ * Alexander Baez - 2026
+ */
 
-// 2. Armamos las rutas completas
-const API_BASE = `${URL_SERVIDOR}/api/v1/products`;
-const API_CAT = `${URL_SERVIDOR}/api/v1/categories`;
-
-const token = localStorage.getItem('baezpos_token');
+const API_BASE = `/products`;
+const API_CAT = `/categories`;
 
 let PRODUCTOS_LOCAL = [];
 
 document.addEventListener('DOMContentLoaded', () => {
-    if (!token || token === 'undefined') { window.location.href = 'login.html'; return; }
+    // 1. CAPTURA DE DATOS DEL OPERADOR LOGUEADO
+    const elUser = document.getElementById('userName');
+    const elRole = document.getElementById('userRoleBadge');
 
-    cargarDatosPerfil();
+    if (elUser) {
+        const nombreGuardado = localStorage.getItem('baezpos_user_name');
+        elUser.innerText = nombreGuardado ? nombreGuardado.toLowerCase() : "Operador";
+    }
+    if (elRole) {
+        const rolGuardado = localStorage.getItem('baezpos_user_role');
+        elRole.innerText = rolGuardado ? rolGuardado.replace('ROLE_', '') : 'USER';
+    }
+
+    // 2. TOGGLE PARA MENÚ RESPONSIVE
+    const btnCollapse = document.getElementById('sidebarCollapse');
+    if (btnCollapse) {
+        btnCollapse.addEventListener('click', () => {
+            document.getElementById('sidebar').classList.toggle('active');
+        });
+    }
+
+    // 3. CARGA INICIAL
     listarProductos();
     cargarCategorias();
 
@@ -20,74 +38,40 @@ document.addEventListener('DOMContentLoaded', () => {
     if(form) form.addEventListener('submit', guardarProducto);
 
     // ==========================================================
-    // RECEPTOR DE SCANNER EXTERNO (CORREGIDO)
+    // 4. RECEPTOR DE SCANNER EXTERNO (MANTENIDO)
     // ==========================================================
     const urlParams = new URLSearchParams(window.location.search);
     const nuevoCodigo = urlParams.get('nuevoCodigo');
-    // Usamos decodeURIComponent para manejar espacios y caracteres especiales
     const nuevoNombre = urlParams.get('nuevoNombre');
 
-if (nuevoCodigo) {
-        // 1. Abrimos el formulario
+    if (nuevoCodigo) {
         prepararFormulario();
-
-        // 2. Esperamos el tiempo suficiente
         setTimeout(() => {
             const inputCodigo = document.getElementById('prodBarcode');
             const inputNombre = document.getElementById('prodNombre');
 
-            // LOG DE CONTROL PARA VOS
             console.log("Intentando escribir en los campos...");
 
             if (inputCodigo) inputCodigo.value = nuevoCodigo;
 
             if (inputNombre && nuevoNombre) {
-                // Usamos decodeURIComponent y limpiamos espacios extras
                 const nombreLimpio = decodeURIComponent(nuevoNombre).trim().toUpperCase();
                 inputNombre.value = nombreLimpio;
                 console.log("Nombre escrito en input:", nombreLimpio);
             }
 
-            // Foco al costo
             const inputCosto = document.getElementById('prodCosto');
             if (inputCosto) inputCosto.focus();
 
             window.history.replaceState({}, document.title, window.location.pathname);
-        }, 1000); // Subimos a 1 segundo para estar 100% seguros
+        }, 1000);
     }
 });
 
-// --- PERFIL Y SESIÓN ---
-function cargarDatosPerfil() {
-    try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const nombreUsuario = payload.sub || "Usuario";
-
-        // 1. Seteamos el nombre en el texto
-        document.getElementById('userName').innerText = nombreUsuario;
-
-        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
-        const elInitial = document.getElementById('userInitial');
-        if (elInitial) {
-            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
-        }
-
-        // 3. Seteamos el nombre de la empresa
-        if(payload.companyName) {
-            document.getElementById('companyName').innerText = payload.companyName;
-        }
-
-    } catch (e) {
-        console.error("Error perfil:", e);
-    }
-}
-
-
-
-// --- CATEGORÍAS ---
+// --- CATEGORÍAS (CON GESTIÓN DE EDICIÓN Y ELIMINACIÓN) ---
 async function cargarCategorias() {
     try {
-        const res = await fetch(API_CAT, { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await apiFetch(API_CAT);
         if(!res.ok) throw new Error("Error al cargar categorías");
         const categorias = await res.json();
 
@@ -105,65 +89,127 @@ async function cargarCategorias() {
 
         if(selectModal) selectModal.innerHTML = options;
         if(selectFiltro) selectFiltro.innerHTML = optionsFiltro;
+
+        return categorias; // Retornamos para uso en gestión
     } catch (err) { console.error(err); }
 }
 
-function abrirModalCategoria() {
-    new bootstrap.Modal(document.getElementById('modalCategoria')).show();
+// NUEVA FUNCIONALIDAD: Abre un modal de gestión para ver, editar y borrar categorías
+async function abrirModalCategoria() {
+    const categorias = await cargarCategorias();
+
+    let listadoHtml = `
+        <div class="list-group list-group-flush mb-4" style="max-height: 200px; overflow-y: auto;">
+            ${categorias.map(c => `
+                <div class="list-group-item d-flex justify-content-between align-items-center bg-light rounded-3 mb-2 border-0">
+                    <span class="fw-bold" id="cat-label-${c.id}">${c.name}</span>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary border-0" onclick="prepararEdicionCat(${c.id}, '${c.name}')"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-outline-danger border-0" onclick="eliminarCategoria(${c.id})"><i class="bi bi-trash"></i></button>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+        <div class="p-3 bg-primary bg-opacity-10 rounded-4">
+            <label class="form-label fw-bold small text-primary">NUEVA / EDITAR CATEGORÍA</label>
+            <input type="hidden" id="editCatId" value="">
+            <input type="text" id="swalCatNombre" class="form-control mb-2" placeholder="Nombre de categoría">
+            <button class="btn btn-primary w-100 shadow-sm" id="btnGuardarCat" onclick="guardarCategoria()">Confirmar Guardar</button>
+        </div>
+    `;
+
+    Swal.fire({
+            title: 'Gestión de Categorías',
+            html: listadoHtml,
+            showConfirmButton: false,
+            showCloseButton: true,
+            customClass: { popup: 'rounded-5' },
+            didOpen: () => {
+                const input = document.getElementById('swalCatNombre');
+                if(input) {
+                    // Forzamos el foco
+                    setTimeout(() => input.focus(), 100);
+
+                    // Evitamos que tus otros eventListeners de "keydown" interfieran
+                    input.addEventListener('keydown', (e) => {
+                        e.stopPropagation();
+                    });
+                }
+            }
+        });
+}
+
+function prepararEdicionCat(id, nombre) {
+    document.getElementById('editCatId').value = id;
+    document.getElementById('swalCatNombre').value = nombre;
+    document.getElementById('btnGuardarCat').innerText = "Actualizar Nombre";
+    document.getElementById('swalCatNombre').focus();
 }
 
 async function guardarCategoria() {
-    const nombreInput = document.getElementById('newCatNombre');
+    const id = document.getElementById('editCatId').value;
+    const nombreInput = document.getElementById('swalCatNombre');
     const nombre = nombreInput.value.trim();
 
     if(!nombre) return Swal.fire('Atención', "Escribe un nombre", 'warning');
 
     try {
-        const res = await fetch(API_CAT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` // <--- ESTO es lo que usa getTenantId()
-            },
-            // Mandamos el objeto tal cual lo espera tu CategoryRequestDTO
-            body: JSON.stringify({
-                name: nombre,
-                description: "" // Mandamos descripción vacía por si el DTO la requiere
-            })
+        const url = id ? `${API_CAT}/${id}` : API_CAT;
+        const metodo = id ? 'PUT' : 'POST';
+
+        const res = await apiFetch(url, {
+            method: metodo,
+            body: JSON.stringify({ name: nombre, description: "" })
         });
 
         if(res.ok) {
-            // Cerrar el modal
-            const modalEl = document.getElementById('modalCategoria');
-            const modalInstance = bootstrap.Modal.getInstance(modalEl);
-            if(modalInstance) modalInstance.hide();
-
-            nombreInput.value = ''; // Limpiar input
-
-            await cargarCategorias(); // Recargar la lista de categorías
-
+            // No cerramos el Swal de inmediato para que el usuario vea el éxito
+            await cargarCategorias();
             Swal.fire({
                 icon: 'success',
-                title: '¡Categoría creada!',
-                text: `Se guardó en tu empresa correctamente`,
-                timer: 2000
+                title: id ? 'Actualizada' : 'Creada',
+                timer: 1000,
+                showConfirmButton: false
+            }).then(() => {
+                abrirModalCategoria(); // Recargamos el modal de gestión para ver los cambios
             });
         } else {
-            // Si hay error, veamos qué dice el server
             const errorData = await res.json();
-            Swal.fire('Error', errorData.message || 'No se pudo crear la categoría', 'error');
+            Swal.fire('Error', errorData.message || 'Error en la operación', 'error');
         }
-    } catch (err) {
-        console.error("Error en la petición:", err);
-        Swal.fire('Error', 'Fallo de conexión con el servidor', 'error');
+    } catch (err) { console.error(err); }
+}
+
+async function eliminarCategoria(id) {
+    const confirm = await Swal.fire({
+        title: '¿Eliminar categoría?',
+        text: "Si tiene productos asociados, no podrá eliminarse.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, borrar',
+        cancelButtonText: 'Cancelar'
+    });
+
+    if (confirm.isConfirmed) {
+        try {
+            const res = await apiFetch(`${API_CAT}/${id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                Swal.close();
+                await cargarCategorias();
+                abrirModalCategoria(); // Refresca el modal de gestión
+            } else {
+                Swal.fire('Error', 'La categoría está siendo usada por productos.', 'error');
+            }
+        } catch (err) { console.error(err); }
     }
 }
 
 // --- PRODUCTOS ---
 async function listarProductos() {
     try {
-        const res = await fetch(API_BASE, { headers: { 'Authorization': `Bearer ${token}` } });
-        if(res.status === 401) { window.location.href = 'login.html'; return; }
+        const res = await apiFetch(API_BASE);
         PRODUCTOS_LOCAL = await res.json();
         renderizarTabla(PRODUCTOS_LOCAL);
     } catch (err) { console.error(err); }
@@ -175,22 +221,32 @@ function renderizarTabla(lista) {
     tabla.innerHTML = '';
 
     if (lista.length === 0) {
-        tabla.innerHTML = '<tr><td colspan="5" class="text-center p-4">No se encontraron productos.</td></tr>';
+        tabla.innerHTML = '<tr><td colspan="7" class="text-center p-5 text-muted">No se encontraron productos.</td></tr>';
         return;
     }
+
     lista.forEach(p => {
-        // Corrección: Manejo de nulos en categoryName para evitar errores de render
-        const catName = p.categoryName || 'Sin Categoría';
+        const catName = p.categoryName || 'S/C';
+        const stockClase = p.stock <= p.minStock ? 'bg-danger bg-opacity-10 text-danger' : 'bg-success bg-opacity-10 text-success';
+        const margen = p.cost > 0 ? (((p.price - p.cost) / p.cost) * 100).toFixed(0) : 0;
+
         tabla.innerHTML += `
             <tr>
-                <td class="ps-4"><b>${p.name}</b><br><small class="text-muted">${p.barcode || 'S/C'}</small></td>
-                <td><span class="badge bg-light text-dark border">${catName}</span></td>
-                <td class="text-primary fw-bold">$${p.price.toFixed(2)}</td>
-                <td><span class="badge ${p.stock <= p.minStock ? 'bg-danger' : 'bg-success'}">${p.stock} unid.</span></td>
+                <td class="ps-4">
+                    <p class="product-name">${p.name}</p>
+                    <span class="product-code"><i class="bi bi-barcode me-1"></i>${p.barcode || 'Sin código'}</span>
+                </td>
+                <td><span class="badge bg-light text-muted border-0 p-2 px-3 rounded-pill">${catName}</span></td>
+                <td class="text-muted">$${p.cost.toFixed(2)}</td>
+                <td class="fw-bold text-dark">$${p.price.toFixed(2)}</td>
+                <td><span class="text-success small fw-bold">+${margen}%</span></td>
+                <td><span class="badge ${stockClase} p-2 px-3 rounded-pill" style="font-size: 0.8rem;">${p.stock} unidades</span></td>
                 <td class="text-end pe-4">
-                    <button class="btn btn-sm btn-outline-secondary me-1" title="Imprimir Etiqueta" onclick="imprimirEtiqueta(${p.id})"><i class="bi bi-printer"></i></button>
-                    <button class="btn btn-sm btn-outline-primary me-1" title="Editar" onclick="editarProducto(${p.id})"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="eliminarProducto(${p.id})"><i class="bi bi-trash"></i></button>
+                    <div class="btn-group shadow-sm rounded-3">
+                        <button class="btn btn-white btn-sm border-end" title="Etiqueta" onclick="imprimirEtiqueta(${p.id})"><i class="bi bi-printer text-primary"></i></button>
+                        <button class="btn btn-white btn-sm border-end" title="Editar" onclick="editarProducto(${p.id})"><i class="bi bi-pencil-square text-primary"></i></button>
+                        <button class="btn btn-white btn-sm" title="Eliminar" onclick="eliminarProducto(${p.id})"><i class="bi bi-trash3 text-danger"></i></button>
+                    </div>
                 </td>
             </tr>`;
     });
@@ -212,19 +268,16 @@ async function guardarProducto(e) {
     e.preventDefault();
     const id = document.getElementById('prodId').value;
 
-    // Capturamos los valores
     const nombre = document.getElementById('prodNombre').value.trim();
     const categoriaId = document.getElementById('prodCategoria').value;
     const barcode = document.getElementById('prodBarcode').value.trim();
 
-    // VALIDACIÓN PREVIA (Antes de mandarlo a Java)
     if (!nombre) return Swal.fire('Error', 'El nombre es obligatorio', 'warning');
     if (!categoriaId) return Swal.fire('Error', 'Selecciona una categoría', 'warning');
 
     const body = {
         name: nombre,
-        description: "Producto Suelto", // Ponemos algo por defecto
-        // Si no hay código de barras, le ponemos el mismo nombre para que no sea nulo
+        description: "Producto de local",
         barcode: barcode || nombre.substring(0, 10).toUpperCase() + Date.now(),
         cost: parseFloat(document.getElementById('prodCosto').value) || 0,
         price: parseFloat(document.getElementById('prodPrecio').value) || 0,
@@ -233,15 +286,9 @@ async function guardarProducto(e) {
         categoryId: parseInt(categoriaId)
     };
 
-    console.log("Enviando a Java:", body); // Para que veas en consola qué mandas
-
     try {
-        const res = await fetch(id ? `${API_BASE}/${id}` : API_BASE, {
+        const res = await apiFetch(id ? `${API_BASE}/${id}` : API_BASE, {
             method: id ? 'PUT' : 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
             body: JSON.stringify(body)
         });
 
@@ -253,15 +300,10 @@ async function guardarProducto(e) {
             await listarProductos();
             Swal.fire({ icon: 'success', title: id ? 'Actualizado' : 'Creado', toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
         } else {
-            // AQUÍ CAPTURAMOS EL ERROR REAL DE JAVA
             const errorData = await res.json();
-            console.error("Error desde Java:", errorData);
-            Swal.fire('Error', errorData.message || 'Error al guardar. Revisá si el código de barras ya existe.', 'error');
+            Swal.fire('Error', errorData.message || 'Error al guardar.', 'error');
         }
-    } catch (err) {
-        console.error("Error de conexión:", err);
-        Swal.fire('Error', 'No se pudo conectar con el servidor', 'error');
-    }
+    } catch (err) { console.error(err); }
 }
 
 function prepararFormulario() {
@@ -271,28 +313,41 @@ function prepararFormulario() {
     new bootstrap.Modal(document.getElementById('modalProducto')).show();
 }
 
-async function editarProducto(id) {
-    try {
-        const res = await fetch(`${API_BASE}/${id}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const p = await res.json();
+function editarProducto(id) {
+    // 1. Buscamos el producto en nuestro array local (evitamos una petición innecesaria)
+    const p = PRODUCTOS_LOCAL.find(prod => prod.id === id);
 
-        document.getElementById('prodId').value = p.id;
-        document.getElementById('prodNombre').value = p.name || '';
-        document.getElementById('prodBarcode').value = p.barcode || '';
-        document.getElementById('prodCosto').value = p.cost || 0;
-        document.getElementById('prodPrecio').value = p.price || 0;
-        document.getElementById('prodStock').value = p.stock || 0;
-        document.getElementById('prodMinStock').value = p.minStock || 0;
+    if (!p) {
+        console.error("Producto no encontrado en local");
+        return;
+    }
 
-        if (p.categoryId) {
-            document.getElementById('prodCategoria').value = p.categoryId;
-        }
+    console.log("Editando producto:", p); // Para debug
 
-        document.getElementById('modalTitulo').innerText = "Editar Producto";
-        new bootstrap.Modal(document.getElementById('modalProducto')).show();
-    } catch (err) { console.error("Error al editar:", err); }
+    // 2. Llenamos los campos del formulario
+    // Asegúrate de que los IDs (prodNombre, prodBarcode, etc) coincidan con tu HTML
+    document.getElementById('prodId').value = p.id;
+    document.getElementById('prodNombre').value = p.name || '';
+    document.getElementById('prodBarcode').value = p.barcode || '';
+    document.getElementById('prodCosto').value = p.cost || 0;
+    document.getElementById('prodPrecio').value = p.price || 0;
+    document.getElementById('prodStock').value = p.stock || 0;
+    document.getElementById('prodMinStock').value = p.minStock || 0;
+
+    // 3. Manejo de la categoría
+    const selectCat = document.getElementById('prodCategoria');
+    if (p.categoryId) {
+        selectCat.value = p.categoryId;
+    } else {
+        selectCat.value = ""; // Por si no tiene categoría
+    }
+
+    // 4. Cambiamos el título y mostramos el modal
+    document.getElementById('modalTitulo').innerText = "Editar Producto";
+
+    const modalEl = document.getElementById('modalProducto');
+    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalInstance.show();
 }
 
 async function eliminarProducto(id) {
@@ -307,9 +362,8 @@ async function eliminarProducto(id) {
 
     if (result.isConfirmed) {
         try {
-            const res = await fetch(`${API_BASE}/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
+            const res = await apiFetch(`${API_BASE}/${id}`, {
+                method: 'DELETE'
             });
             if (res.ok) {
                 await listarProductos();
@@ -321,7 +375,7 @@ async function eliminarProducto(id) {
 
 async function abrirPapelera() {
     try {
-        const res = await fetch(`${API_BASE}/deleted`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const res = await apiFetch(`${API_BASE}/deleted`);
         const borrados = await res.json();
         const tabla = document.getElementById('listaBorrados');
         tabla.innerHTML = '';
@@ -345,9 +399,8 @@ async function abrirPapelera() {
 
 async function restaurarProducto(id) {
     try {
-        const res = await fetch(`${API_BASE}/${id}/activate`, {
-            method: 'PATCH',
-            headers: { 'Authorization': `Bearer ${token}` }
+        const res = await apiFetch(`${API_BASE}/${id}/activate`, {
+            method: 'PATCH'
         });
         if(res.ok) {
             bootstrap.Modal.getInstance(document.getElementById('modalPapelera')).hide();
@@ -378,12 +431,10 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// --- FUNCIÓN IMPRIMIR (Corrección de inyección de script) ---
+// --- IMPRESIÓN ---
 function imprimirEtiqueta(id) {
     const p = PRODUCTOS_LOCAL.find(prod => prod.id === id);
-    if (!p || !p.barcode) {
-        return Swal.fire('Error', 'El producto no tiene código de barras', 'warning');
-    }
+    if (!p || !p.barcode) return Swal.fire('Error', 'El producto no tiene código de barras', 'warning');
 
     const ventana = window.open('', 'PRINT', 'height=400,width=600');
     ventana.document.write(`
@@ -423,17 +474,18 @@ function imprimirEtiqueta(id) {
     ventana.document.close();
 }
 
-function cerrarSesion() {
-    Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Salir',
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            localStorage.clear();
-            window.location.href = 'login.html';
-        }
-    });
+// 1. Evita que Bootstrap "secuestre" el foco y bloquee el teclado
+if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+    bootstrap.Modal.prototype._enforceFocus = function() {};
 }
+
+// 2. Permite que el foco fluya hacia SweetAlert2 (reemplazo de la lógica jQuery)
+document.addEventListener('focusin', (e) => {
+    if (e.target.closest(".swal2-container")) {
+        e.stopImmediatePropagation();
+    }
+}, true);
+
+// 3. FIX CRÍTICO: Detener la propagación en el input de SweetAlert
+// Agregaremos este pequeño cambio dentro de tu función abrirModalCategoria
+// para asegurar que el teclado llegue al input.

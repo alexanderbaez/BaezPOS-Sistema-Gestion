@@ -11,12 +11,11 @@ import java.time.LocalDate;
 import java.util.List;
 
 public interface SaleService {
-    SaleResponseDTO createSale(SaleRequestDTO saleDTO, Long companyId, Long userId);
-    SaleResponseDTO getSaleById(Long id, Long companyId);
-    List<SaleResponseDTO> getAllSalesByCompany(Long companyId);
-    BoxReportDTO getBoxReport(Long companyId);
-    List<ChartDataDTO> getSalesChartData(Long companyId);
-    void cancelSale(Long saleId, Long companyId);
-    List<SaleResponseDTO> getSalesByDateRange(LocalDate desde, LocalDate hasta, Long companyId);
-
+    SaleResponseDTO createSale(SaleRequestDTO saleDTO, Long userId); // Solo necesitamos el usuario que vende
+    SaleResponseDTO getSaleById(Long id);
+    List<SaleResponseDTO> getAllSales();
+    BoxReportDTO getBoxReport(String period);
+    List<ChartDataDTO> getSalesChartData();
+    void cancelSale(Long saleId);
+    List<SaleResponseDTO> getSalesByDateRange(LocalDate desde, LocalDate hasta);
 }

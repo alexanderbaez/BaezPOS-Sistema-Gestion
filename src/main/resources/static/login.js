@@ -1,3 +1,22 @@
+// Variable global para el modal
+let modalRecuperacionInstance;
+
+// 1. Verificación de Setup Inicial al cargar
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const res = await fetch('http://localhost:8080/api/v1/auth/setup-status');
+        if (res.ok) {
+            const data = await res.json();
+            if (data.isSetupRequired === true) {
+                window.location.href = 'setup.html';
+            }
+        }
+    } catch (e) {
+        console.error("Error de conexión inicial:", e);
+    }
+});
+
+// 2. Manejo de Login (MODIFICADO Y CORREGIDO)
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
 
@@ -8,7 +27,6 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
     const loader = document.getElementById('loader');
     const messageContainer = document.getElementById('messageContainer');
 
-    // Limpiar UI
     messageContainer.innerHTML = '';
     btnText.classList.add('d-none');
     loader.classList.remove('d-none');
@@ -23,68 +41,41 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 
         if (response.ok) {
             const data = await response.json();
+            const cleanRole = (data.role || "").replace('ROLE_', '');
 
-            // 1. Extraemos y limpiamos el rol
-            const rawRole = data.role || "";
-            const cleanRole = rawRole.replace('ROLE_', '');
-
-            // 2. Guardamos en localStorage (Limpiamos antes para evitar basura de otras sesiones)
             localStorage.clear();
             localStorage.setItem('baezpos_token', data.token);
             localStorage.setItem('baezpos_user_role', cleanRole);
             localStorage.setItem('baezpos_user_name', data.name || "Usuario");
-            // Guardamos el companyId para el chequeo de licencia posterior
-            localStorage.setItem('baezpos_company_id', data.companyId);
 
-            messageContainer.innerHTML = `<div class="alert alert-success">¡Bienvenido! Redirigiendo...</div>`;
+            messageContainer.innerHTML = `<div class="alert alert-success custom-alert">Iniciando sesión...</div>`;
 
-            // 3. Redirección según el rol
             setTimeout(() => {
-                if (cleanRole === 'SUPER_ADMIN') {
-                    window.location.href = 'admin-maestro.html';
-                } else if (cleanRole === 'ADMIN') {
-                    window.location.href = 'dashboard.html';
-                } else {
-                    window.location.href = 'ventas.html';
+                if (cleanRole === 'ADMIN') window.location.href = 'dashboard.html';
+                else if (cleanRole === 'VENDEDOR') window.location.href = 'ventas.html';
+                else {
+                    Swal.fire('Error', 'Rol no reconocido.', 'error');
+                    resetButton();
                 }
             }, 800);
-
         } else {
-            // --- BLOQUE DE DETECCIÓN DE ERRORES DEL SERVIDOR ---
-            const errorData = await response.json().catch(() => ({}));
-            // Buscamos el mensaje en 'message' o 'error'
-            const errorMessage = (errorData.message || errorData.error || "").toUpperCase();
-
-            // --- EL CANDADO DE ALEXANDER ---
-            // Si el mensaje dice SUSPENDIDA o VENCIDA, o si el servidor tiró un 403 (Forbidden)
-            if (errorMessage.includes("CUENTA_SUSPENDIDA") ||
-                errorMessage.includes("SUSCRIPCION_VENCIDA") ||
-                response.status === 403) {
-
-                Swal.fire({
-                    title: '¡SISTEMA SUSPENDIDO!',
-                    text: 'Tu suscripción ha vencido o tu cuenta está inactiva. Contacta a Alexander Báez para habilitar el servicio.',
-                    icon: 'error',
-                    showCancelButton: true,
-                    confirmButtonColor: '#25D366',
-                    confirmButtonText: '<i class="bi bi-whatsapp"></i> Hablar con Alexander',
-                    cancelButtonText: 'Cerrar',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        window.open('https://wa.me/5492645468570?text=Hola Alexander, mi sistema aparece como suspendido. Necesito habilitarlo.');
-                    }
-                });
-            } else {
-                // Error común de login
-                messageContainer.innerHTML = `<div class="alert alert-danger">Usuario o contraseña incorrectos</div>`;
+            // CORRECCIÓN SENIOR: Leemos el JSON de error devuelto por Spring Boot
+            let mensajeError = "Credenciales incorrectas";
+            try {
+                const errorData = await response.json();
+                if (errorData && errorData.message) {
+                    mensajeError = errorData.message; // Captura "La clave temporal ha expirado..."
+                }
+            } catch (jsonErr) {
+                console.warn("La respuesta no contiene un JSON de error válido:", jsonErr);
             }
+
+            messageContainer.innerHTML = `<div class="alert alert-danger custom-alert">${mensajeError}</div>`;
             resetButton();
         }
     } catch (error) {
-        console.error("Error de conexión:", error);
-        messageContainer.innerHTML = `<div class="alert alert-warning">No se pudo conectar con el servidor. Revisá tu conexión.</div>`;
+        console.error("Error en la petición de autenticación:", error);
+        messageContainer.innerHTML = `<div class="alert alert-warning custom-alert">Servidor local desconectado</div>`;
         resetButton();
     }
 });
@@ -93,4 +84,65 @@ function resetButton() {
     document.getElementById('btnText').classList.remove('d-none');
     document.getElementById('loader').classList.add('d-none');
     document.getElementById('btnIngresar').classList.remove('disabled');
+}
+
+// --- SECCIÓN DE RECUPERACIÓN OFFLINE ---
+
+async function abrirModalRecuperacion() {
+    if (!modalRecuperacionInstance) {
+        modalRecuperacionInstance = new bootstrap.Modal(document.getElementById('modalRecuperacion'));
+    }
+
+    // Limpiar input y cargar ID
+    document.getElementById('llaveMaestraInput').value = '';
+    document.getElementById('pcIdDisplay').innerText = "OBTENIENDO ID...";
+    modalRecuperacionInstance.show();
+
+    try {
+        const res = await fetch('http://localhost:8080/api/v1/auth/pc-id');
+        const data = await res.json();
+        document.getElementById('pcIdDisplay').innerText = data.pcId;
+    } catch (e) {
+        document.getElementById('pcIdDisplay').innerText = "ERROR AL OBTENER HARDWARE ID";
+    }
+}
+
+function copiarId() {
+    const id = document.getElementById('pcIdDisplay').innerText;
+    navigator.clipboard.writeText(id);
+    const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
+    Toast.fire({ icon: 'success', title: 'ID copiado al portapapeles' });
+}
+
+async function validarLlaveOffline() {
+    const llave = document.getElementById('llaveMaestraInput').value.trim();
+
+    if (llave.length < 5) {
+        Swal.fire('Atención', 'Ingrese la llave de 6 dígitos proporcionada.', 'warning');
+        return;
+    }
+
+    try {
+        const res = await fetch('http://localhost:8080/api/v1/auth/validar-llave-maestra', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ llave: llave })
+        });
+
+        if (res.ok) {
+            Swal.fire({
+                title: 'Acceso Restablecido',
+                text: 'La llave es correcta. Su nueva clave es: admin123',
+                icon: 'success',
+                confirmButtonColor: '#1e3a8a'
+            }).then(() => {
+                modalRecuperacionInstance.hide();
+                document.getElementById('password').value = 'admin123';
+            });
+        } else {
+            Swal.fire('Error', 'Llave incorrecta para este equipo.', 'error');
+        }
+    } catch (e) {
+        Swal.fire('Error', 'No hay conexión con el servicio local.', 'error');
+    }
 }

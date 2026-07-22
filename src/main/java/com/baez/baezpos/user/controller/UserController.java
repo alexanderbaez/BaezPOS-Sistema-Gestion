@@ -7,11 +7,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.util.Map;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/users")
+@RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class UserController {
@@ -23,9 +25,9 @@ public class UserController {
         return new ResponseEntity<>(userService.createUser(user), HttpStatus.CREATED);
     }
 
-    @GetMapping("/company/{companyId}")
-    public ResponseEntity<List<UserResponseDTO>> getByCompany(@PathVariable Long companyId) {
-        return ResponseEntity.ok(userService.getAllByCompany(companyId));
+    @GetMapping
+    public ResponseEntity<List<UserResponseDTO>> getAll() {
+        return ResponseEntity.ok(userService.getAllUsers());
     }
 
     @GetMapping("/{id}")
@@ -42,5 +44,17 @@ public class UserController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         userService.deleteUser(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/update-password")
+    public ResponseEntity<?> updatePassword(@RequestBody Map<String, String> request) {
+        String newPassword = request.get("newPassword");
+
+        // Obtenemos el email directamente de la sesión activa (Token JWT)
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+
+        userService.updatePasswordOnly(email, newPassword);
+
+        return ResponseEntity.ok(Map.of("message", "Contraseña actualizada correctamente"));
     }
 }

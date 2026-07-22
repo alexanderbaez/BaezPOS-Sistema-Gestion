@@ -2,15 +2,18 @@ package com.baez.baezpos.product.repository;
 
 import com.baez.baezpos.product.entity.Product;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
 
-// ProductRepository.java
 public interface ProductRepository extends JpaRepository<Product, Long> {
-    Optional<Product> findByBarcodeAndCompanyId(String barcode, Long companyId);
-    List<Product> findByCompanyIdAndActiveTrue(Long companyId);
+    Optional<Product> findByBarcode(String barcode);
 
-    // Para ver los productos eliminados
-    List<Product> findByCompanyIdAndActiveFalse(Long companyId);
+    // Traemos el producto Y su categoría de un solo viaje a la DB
+    @Query("SELECT p FROM Product p LEFT JOIN FETCH p.category WHERE p.active = true")
+    List<Product> findByActiveTrueWithCategory();
+
+    @Query("SELECT p FROM Product p LEFT JOIN FETCH p.category WHERE p.active = false")
+    List<Product> findByActiveFalseWithCategory();
 }

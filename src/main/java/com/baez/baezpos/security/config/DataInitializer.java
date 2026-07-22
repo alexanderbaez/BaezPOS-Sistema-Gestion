@@ -14,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
         @Override
         @Transactional
         public void run(String... args) throws Exception {
-            // YA NO HAY NADA ESTÁTICO AQUÍ.
-            // El sistema arrancará con lo que encuentre en MySQL.
+
         }
     }

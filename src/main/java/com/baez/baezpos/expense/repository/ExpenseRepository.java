@@ -10,13 +10,10 @@ import java.util.List;
 
 public interface ExpenseRepository extends JpaRepository<Expense, Long> {
 
-    // Lista histórica de gastos por empresa
-    List<Expense> findByCompanyIdOrderByExpenseDateDesc(Long companyId);
+    List<Expense> findAllByOrderByExpenseDateDesc();
 
-    // Suma de gastos para el reporte financiero
-    @Query("SELECT SUM(e.amount) FROM Expense e WHERE e.company.id = :companyId AND e.expenseDate BETWEEN :start AND :end")
-    BigDecimal sumTotalByCompanyAndDateRange(
-            @Param("companyId") Long companyId,
+    @Query("SELECT COALESCE(SUM(e.amount), 0) FROM Expense e WHERE e.expenseDate BETWEEN :start AND :end")
+    BigDecimal sumTotalByDateRange(
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 }

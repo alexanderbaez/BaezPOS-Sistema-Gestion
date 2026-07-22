@@ -1,11 +1,10 @@
-const API_BASE = 'http://localhost:8080/api/v1/sales';
-const API_PRODUCTS = 'http://localhost:8080/api/v1/products';
-const API_CUSTOMERS = 'http://localhost:8080/api/v1/customers';
-const token = localStorage.getItem('baezpos_token');
+const API_BASE = '/sales';
+const API_PRODUCTS = '/products';
+const API_CUSTOMERS = '/customers';
 const companyId = localStorage.getItem('baezpos_company_id');
 
 // --- CORRECCIÓN AQUÍ: Solo una vez y con /status al final ---
-const API_STATUS = 'http://localhost:8080/api/v1/admin/my-company/status';
+const API_STATUS = '/admin/my-company/status';
 
 // --- EL CANDADO DE ALEXANDER ---
 let sistemaBloqueado = false;
@@ -23,13 +22,16 @@ let SUBTOTAL_VENTA = 0;
 let DESCUENTO_FINAL_PESOS = 0;
 let clienteSeleccionado = null;
 let indiceSeleccionado = -1;
-
+let ULTIMA_VENTA_EXITOSA = null;
+let DATOS_EMPRESA = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-    if (!token) { window.location.href = 'login.html'; return; }
+    // 1. CARGA DE IDENTIDAD
+    await cargarInfoEmpresa();
+
+    // Info del Token manejado por auth.js
     await chequearEstadoLicencia();
     await cargarProductos();
-
 
     const buscador = document.getElementById('buscadorVenta');
     const sugerenciasDiv = document.getElementById('listaSugerencias');
@@ -82,7 +84,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // --- BUSCADOR DE CLIENTES (AGREGADO AQUÍ) ---
+    // --- BUSCADOR DE CLIENTES ---
     const buscadorCli = document.getElementById('buscarClientePos');
     if (buscadorCli) {
         buscadorCli.addEventListener('input', async (e) => {
@@ -91,9 +93,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (term.length < 2) { sugCli.style.display = 'none'; return; }
 
             try {
-                const res = await fetch(`${API_CUSTOMERS}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+                const res = await apiFetch(`${API_CUSTOMERS}`);
                 const todos = await res.json();
                 const filtrados = todos.filter(c =>
                     c.name.toLowerCase().includes(term.toLowerCase())
@@ -103,7 +103,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <button type="button" class="list-group-item list-group-item-action small" onclick='seleccionarCliente(${JSON.stringify(c)})'>
                         <div class="d-flex justify-content-between">
                             <span>${c.name}</span>
-                            <span class="text-danger fw-bold">$${c.currentBalance.toFixed(2)}</span>
+                            <span class="${c.currentBalance >= c.creditLimit ? 'text-danger' : 'text-success'} fw-bold">$${c.currentBalance.toFixed(2)}</span>
                         </div>
                     </button>
                 `).join('');
@@ -138,27 +138,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
-function cargarDatosPerfil() {
+async function cargarInfoEmpresa() {
     try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const nombreUsuario = payload.sub || "Usuario";
+        const resp = await apiFetch('/admin/my-company/profile');
 
-        // 1. Seteamos el nombre en el texto
-        document.getElementById('userName').innerText = nombreUsuario;
-
-        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
-        const elInitial = document.getElementById('userInitial');
-        if (elInitial) {
-            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
+        if (resp.ok) {
+            DATOS_EMPRESA = await resp.json();
+            // Guardamos en ambas claves para sincronizar con perfil.js
+            localStorage.setItem('config_comercio', JSON.stringify(DATOS_EMPRESA));
+            localStorage.setItem('DATOS_EMPRESA', JSON.stringify(DATOS_EMPRESA));
+            console.log("Datos cargados de la API:", DATOS_EMPRESA.name);
+        } else {
+            const dataGuardada = localStorage.getItem('config_comercio') || localStorage.getItem('DATOS_EMPRESA');
+            if (dataGuardada) {
+                DATOS_EMPRESA = JSON.parse(dataGuardada);
+                console.log("Datos recuperados localmente para el vendedor");
+            }
         }
-
-        // 3. Seteamos el nombre de la empresa
-        if(payload.companyName) {
-            document.getElementById('companyName').innerText = payload.companyName;
-        }
-
-    } catch (e) {
-        console.error("Error perfil:", e);
+    } catch (err) {
+        console.error("Error de conexión:", err);
     }
 }
 
@@ -172,16 +170,13 @@ function actualizarFocoSugerencia(items) {
         }
     });
 }
-// 1. FUNCIÓN DE CARGA (CORREGIDA)
+
 async function cargarProductos() {
     try {
-        const res = await fetch(API_PRODUCTS, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await apiFetch(API_PRODUCTS);
 
-        // --- SI EL FILTRO DE JAVA TIRA 403 (CUENTA DESACTIVADA) ---
         if (res.status === 403) {
-            bloquearSistemaPorFaltaDePago();
+            console.warn("Error 403: El vendedor no tiene permiso para ver productos.");
             return;
         }
 
@@ -201,14 +196,11 @@ async function cargarProductos() {
 }
 
 async function buscarYAgregar(query) {
-    console.log("🚀 Función buscarYAgregar iniciada con:", query);
     if (!query) return;
     const term = query.toLowerCase().trim();
 
-    // VALIDACIÓN DE SEGURIDAD: ¿Existe la base de datos local?
     if (typeof PRODUCTOS_DB === 'undefined') {
-        console.error("❌ ERROR: PRODUCTOS_DB no está definida en ventas.js");
-        PRODUCTOS_DB = []; // La creamos vacía para que no rompa el resto
+        PRODUCTOS_DB = [];
     }
 
     const p = PRODUCTOS_DB.find(prod =>
@@ -217,16 +209,12 @@ async function buscarYAgregar(query) {
     );
 
     if (p) {
-        console.log("✅ Producto encontrado localmente");
         seleccionarProducto(p);
     } else {
-        console.log("🔍 No está en DB local, buscando en API externa...");
-
         if (/^\d{7,14}$/.test(term)) {
             try {
                 const response = await fetch(`https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=product_name,product_name_es,brands,quantity`);
                 const data = await response.json();
-                console.log("📦 Respuesta de la API:", data);
 
                 if (data.status === 1 && data.product) {
                     const nombreAPI = data.product.product_name_es || data.product.product_name || "";
@@ -248,12 +236,10 @@ async function buscarYAgregar(query) {
                     return;
                 }
             } catch (err) {
-                console.error("❌ Error fetch API:", err);
+                console.error("Error fetch API:", err);
             }
         }
 
-        // Si llegó acá es porque no lo encontró en ningún lado
-        console.log("❌ No se encontró en ningún lado, abriendo aviso de carga manual.");
         Swal.fire({
             icon: 'error',
             title: 'No encontrado',
@@ -281,7 +267,6 @@ function renderizarCarrito() {
         const subtotal = item.price * item.cantidad;
         SUBTOTAL_VENTA += subtotal;
 
-        // Uso de toLocaleString para formato profesional con puntos y comas
         const precioFmt = item.price.toLocaleString('es-AR', { minimumFractionDigits: 2 });
         const subtotalFmt = subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 });
 
@@ -308,7 +293,6 @@ function renderizarCarrito() {
             </tr>`;
     });
 
-    // Lógica de Descuento
     const inputDesc = document.getElementById('inputDescuento');
     const tipoDesc = document.getElementById('tipoDescuento');
     let valorIngresado = parseFloat(inputDesc?.value) || 0;
@@ -319,40 +303,26 @@ function renderizarCarrito() {
         DESCUENTO_FINAL_PESOS = valorIngresado;
     }
 
-    // Evitar descuentos mayores al total
     if (DESCUENTO_FINAL_PESOS > SUBTOTAL_VENTA) DESCUENTO_FINAL_PESOS = SUBTOTAL_VENTA;
 
     const totalConDescuento = SUBTOTAL_VENTA - DESCUENTO_FINAL_PESOS;
 
-    // Renderizado de totales finales
     document.getElementById('totalVenta').innerText = `$${totalConDescuento.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
 
     calcularVuelto();
 
-    // --- MEJORA DE FOCO INTELIGENTE ---
-    // Solo devolvemos el foco al buscador si el usuario NO está editando descuento o pago
     const activeEl = document.activeElement.id;
-    if (activeEl !== 'pagaCon' && activeEl !== 'inputDescuento') {
+    if (activeEl !== 'pagaCon' && activeEl !== 'inputDescuento' && activeEl !== 'buscarClientePos') {
         document.getElementById('buscadorVenta').focus();
     }
 }
 
 function calcularVuelto() {
-    // 1. Obtenemos el texto del total (ejemplo: "$3.000,00")
     let totalText = document.getElementById('totalVenta').innerText;
-
-    // 2. LIMPIEZA TOTAL:
-    // Quitamos el "$", quitamos los puntos de miles y cambiamos la coma por punto
-    let totalLimpio = totalText.replace('$', '')     // Quita el signo peso
-                               .replace(/\./g, '')    // Quita los puntos de MILES
-                               .replace(',', '.');    // Cambia la coma decimal por PUNTO
-
+    let totalLimpio = totalText.replace('$', '').replace(/\./g, '').replace(',', '.');
     const total = parseFloat(totalLimpio) || 0;
 
-    // 3. Obtenemos cuánto paga el cliente
     const pagaCon = parseFloat(document.getElementById('pagaCon').value) || 0;
-
-    // 4. Cálculo del vuelto
     const vuelto = pagaCon - total;
     const txtVuelto = document.getElementById('vueltoVenta');
 
@@ -362,7 +332,6 @@ function calcularVuelto() {
             txtVuelto.classList.remove('text-success');
             txtVuelto.classList.add('text-danger');
         } else {
-            // Mostramos el vuelto con formato lindo
             txtVuelto.innerText = `$${vuelto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             txtVuelto.classList.remove('text-danger');
             txtVuelto.classList.add('text-success');
@@ -373,7 +342,7 @@ function calcularVuelto() {
 function cambiarCant(index, valor) {
     const item = CARRITO[index];
     const original = PRODUCTOS_DB.find(p => p.id === item.id);
-    if (valor > 0 && item.cantidad >= original.stock) {
+    if (valor > 0 && original && item.cantidad >= original.stock) {
         if(sndError) sndError.play().catch(()=>{});
         Swal.fire({ icon: 'info', title: 'Límite alcanzado', text: 'No hay más unidades en stock', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
         return;
@@ -399,260 +368,13 @@ function setMetodo(metodo, el) {
     if (metodo === 'CUENTA_CORRIENTE') {
         divCli.classList.remove('d-none');
         divVue.classList.add('d-none');
-        document.getElementById('buscarClientePos').focus();
-    } else {
-        divCli.classList.add('d-none');
-        divVue.classList.remove('d-none');
-        clienteSeleccionado = null;
-        if (metodo === 'TRANSFERENCIA') {
-            const total = document.getElementById('totalVenta').innerText.replace('$', '');
-            document.getElementById('pagaCon').value = total;
-            calcularVuelto();
-        } else {
-            document.getElementById('pagaCon').value = '';
-        }
-    }
-    document.getElementById('buscadorVenta').focus();
-}
-
-function cancelarVenta() {
-    if (CARRITO.length === 0) return;
-    CARRITO = [];
-    document.getElementById('pagaCon').value = '';
-    const inputDesc = document.getElementById('inputDescuento');
-    if (inputDesc) inputDesc.value = '';
-    renderizarCarrito();
-}
-
-async function finalizarVenta() {
-
-    if (sistemaBloqueado) {
-            mostrarCartelBloqueo();
-            return;
-        }
-
-
-    if (CARRITO.length === 0) {
-        Swal.fire('Carrito vacío', 'Agrega productos para cobrar', 'info');
-        return;
-    }
-
-    const totalText = document.getElementById('totalVenta').innerText.replace('$', '');
-    const total = parseFloat(totalText);
-    const pagaCon = parseFloat(document.getElementById('pagaCon').value) || 0;
-
-    // VALIDACIÓN: Efectivo insuficiente
-    if (METODO_PAGO === 'EFECTIVO' && pagaCon < total) {
-        Swal.fire('Atención', 'El monto recibido es insuficiente', 'warning');
-        return;
-    }
-
-    // VALIDACIÓN: Cuenta Corriente (Libreta)
-    if (METODO_PAGO === 'CUENTA_CORRIENTE') {
-        if (!clienteSeleccionado) {
-            Swal.fire('Atención', 'Debes seleccionar un cliente para vender a la libreta', 'warning');
-            return;
-        }
-        // Validar si la deuda actual + esta venta supera el límite permitido
-        if ((clienteSeleccionado.currentBalance + total) > clienteSeleccionado.creditLimit) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Límite de Crédito Excedido',
-                text: `El cliente no puede deber más de $${clienteSeleccionado.creditLimit}. Saldo actual: $${clienteSeleccionado.currentBalance.toFixed(2)}`
-            });
-            return;
-        }
-    }
-
-    const saleRequestDTO = {
-        items: CARRITO.map(item => ({
-            productId: item.id,
-            quantity: item.cantidad,
-            price: item.price
-        })),
-        discount: DESCUENTO_FINAL_PESOS || 0,
-        paymentMethod: METODO_PAGO,
-        customerId: clienteSeleccionado ? clienteSeleccionado.id : null // Se envía el ID si es libreta
-    };
-
-    const btnFinalizar = document.querySelector('.btn-primary.btn-lg.w-100.py-3');
-    if (btnFinalizar) btnFinalizar.disabled = true;
-
-    try {
-        const res = await fetch(API_BASE, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(saleRequestDTO)
-        });
-
-        let data = {};
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-            data = await res.json();
-        }
-
-        if (res.ok) {
-            // REPRODUCIR SONIDO DE ÉXITO
-            if(window.sndSuccess) window.sndSuccess.play().catch(()=>{});
-
-            // LÓGICA DE CONFIRMACIÓN E IMPRESIÓN
-            Swal.fire({
-                icon: 'success',
-                title: '¡Venta Realizada!',
-                text: METODO_PAGO === 'CUENTA_CORRIENTE'
-                    ? `Cargado a la cuenta de ${clienteSeleccionado.name} (Op #${data.id})`
-                    : `Operación #${data.id || 'Exitosa'}`,
-                showCancelButton: true,
-                confirmButtonText: '<i class="bi bi-printer"></i> Imprimir Ticket',
-                cancelButtonText: 'No imprimir',
-                confirmButtonColor: '#28a745',
-                cancelButtonColor: '#6c757d',
-                reverseButtons: true
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    if (typeof imprimirTicket === 'function') {
-                        imprimirTicket(data);
-                    }
-                }
-            });
-
-            // LIMPIEZA DE INTERFAZ
-            CARRITO = [];
-            clienteSeleccionado = null; // Reset del cliente seleccionado
-
-            // Ocultar el panel de info del cliente si existe
-            const infoCli = document.getElementById('infoClienteSeleccionado');
-            if(infoCli) infoCli.classList.add('d-none');
-
-            document.getElementById('pagaCon').value = '';
-            const inputDesc = document.getElementById('inputDescuento');
-            if (inputDesc) inputDesc.value = '';
-
-            renderizarCarrito();
-            await cargarProductos(); // Refrescar stock tras la venta
-
-        } else {
-            throw new Error(data.message || "Error al procesar la venta");
-        }
-    } catch (err) {
-        console.error(err);
-        if(window.sndError) window.sndError.play().catch(()=>{});
-        Swal.fire('Error', err.message, 'error');
-    } finally {
-        if (btnFinalizar) btnFinalizar.disabled = false;
-        document.getElementById('buscadorVenta').focus();
-    }
-}
-
-function imprimirTicket(venta) {
-    const ventana = window.open('', 'PRINT', 'height=600,width=400');
-    const fechaVenta = venta.saleDate ? new Date(venta.saleDate).toLocaleString() : new Date().toLocaleString();
-
-    // GENERAMOS LA URL DEL QR (Contiene el ID de venta y el total para validación)
-    const qrData = `Venta:${venta.id}|Total:${venta.total}`;
-    const qrUrl = `https://chart.googleapis.com/chart?chs=150x150&cht=qr&chl=${encodeURIComponent(qrData)}&choe=UTF-8`;
-
-    ventana.document.write(`
-        <html>
-            <head>
-                <title>Ticket #BT-${venta.id}</title>
-                <style>
-                    body { font-family: 'Courier New', monospace; width: 58mm; font-size: 11px; padding: 5px; margin: 0; color: #000; }
-                    .text-center { text-align: center; }
-                    .line { border-top: 1px dashed black; margin: 5px 0; }
-                    .total { font-size: 13px; font-weight: bold; }
-                    .qr-container { margin-top: 10px; text-align: center; }
-                    .item-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-                </style>
-            </head>
-            <body onload="window.print(); window.close();">
-                <div class="text-center">
-                    <strong>${venta.companyName || 'BAEZ POS'}</strong><br>
-                    Venta #${venta.id}<br>
-                    ${fechaVenta}
-                </div>
-                <div class="line"></div>
-
-                ${venta.items.map(item => `
-                    <div class="item-row">
-                        <span style="max-width: 75%;">${item.productName.toUpperCase()}</span>
-                        <span>$${item.subtotal.toFixed(2)}</span>
-                    </div>
-                `).join('')}
-
-                <div class="line"></div>
-                ${venta.discount > 0 ? `
-                    <div class="item-row" style="color: #000;">
-                        <span>DESCUENTO:</span>
-                        <span>-$${venta.discount.toFixed(2)}</span>
-                    </div>
-                    <div class="line"></div>
-                ` : ''}
-
-                <div class="total item-row">
-                    <span>TOTAL:</span>
-                    <span>$${venta.total.toFixed(2)}</span>
-                </div>
-                <div class="line"></div>
-
-                <div class="text-center">
-                    Pago: ${venta.paymentMethod || 'EFECTIVO'}<br>
-                    Atendido por: ${venta.userName || 'Cajero'}
-                </div>
-
-                <div class="qr-container">
-                    <img src="${qrUrl}" alt="QR Venta" style="width: 110px; height: 110px;">
-                    <br><small>Comprobante no fiscal</small>
-                </div>
-
-                <div class="line"></div>
-                <div class="text-center" style="font-weight: bold; margin-top: 5px;">
-                    ${mensajeTicketServidor ? mensajeTicketServidor.toUpperCase() : '¡GRACIAS POR SU COMPRA!'}
-                </div>
-            </body>
-        </html>
-    `);
-    ventana.document.close();
-}
-
-// Reemplazo final para que te deje buscar clientes (Silvia) y usar la carga manual
-document.addEventListener('keydown', (e) => {
-    const buscador = document.getElementById('buscadorVenta');
-    const idActivo = document.activeElement.id;
-
-    // LISTA BLANCA: Agregamos 'buscarClientePos' para que no te robe el foco
-    const inputsLibres = ['pagaCon', 'inputDescuento', 'buscarClientePos', 'manualNombre', 'manualPrecio'];
-
-    if (!inputsLibres.includes(idActivo)) {
-        // Solo capturamos si es una letra/número y NO es un atajo de teclado (Ctrl+V, etc.)
-        if (e.key.length === 1 && !e.ctrlKey && !e.altKey) {
-            if (document.activeElement !== buscador) {
-                buscador.focus();
-            }
-        }
-    }
-});
-function setMetodo(metodo, el) {
-    METODO_PAGO = metodo;
-    document.querySelectorAll('.metodo-pago').forEach(d => d.classList.remove('active'));
-    el.classList.add('active');
-
-    const divCli = document.getElementById('seccionClienteFiado');
-    const divVue = document.getElementById('seccionVuelto');
-
-    if (metodo === 'CUENTA_CORRIENTE') {
-        divCli.classList.remove('d-none');
-        divVue.classList.add('d-none');
-        // El timeout es para asegurar que el elemento sea visible antes de darle foco
         setTimeout(() => document.getElementById('buscarClientePos').focus(), 100);
     } else {
         divCli.classList.add('d-none');
         divVue.classList.remove('d-none');
         clienteSeleccionado = null;
-        document.getElementById('infoClienteSeleccionado').classList.add('d-none');
+        const infoCli = document.getElementById('infoClienteSeleccionado');
+        if (infoCli) infoCli.classList.add('d-none');
 
         if (metodo === 'TRANSFERENCIA') {
             const total = document.getElementById('totalVenta').innerText.replace('$', '');
@@ -666,12 +388,417 @@ function setMetodo(metodo, el) {
     }
 }
 
-// Función para agregar algo que NO está en la base de datos
+function cancelarVenta() {
+    if (CARRITO.length === 0) return;
+    CARRITO = [];
+    document.getElementById('pagaCon').value = '';
+    const inputDesc = document.getElementById('inputDescuento');
+    if (inputDesc) inputDesc.value = '';
+    renderizarCarrito();
+}
+
+async function finalizarVenta() {
+    if (sistemaBloqueado) {
+        mostrarCartelBloqueo();
+        return;
+    }
+
+    if (CARRITO.length === 0) {
+        Swal.fire('Carrito vacío', 'Agrega productos para cobrar', 'info');
+        return;
+    }
+
+    const totalRaw = document.getElementById('totalVenta').innerText;
+    const totalLimpio = totalRaw.replace('$', '').replace(/\./g, '').replace(',', '.').trim();
+    let total = parseFloat(totalLimpio);
+
+    const pagaConInput = document.getElementById('pagaCon').value;
+    const pagaCon = parseFloat(pagaConInput.replace(/\./g, '').replace(',', '.')) || 0;
+
+    if (METODO_PAGO === 'EFECTIVO' && pagaCon < total) {
+        Swal.fire('Atención', 'El monto recibido es insuficiente', 'warning');
+        return;
+    }
+
+    let porcentajeRecargo = 0;
+    let montoRecargo = 0;
+
+    if (METODO_PAGO === 'CUENTA_CORRIENTE') {
+        if (!clienteSeleccionado) {
+            Swal.fire('Atención', 'Debes seleccionar un cliente para vender a la libreta', 'warning');
+            return;
+        }
+
+        const { value: recargoIngresado, isConfirmed } = await Swal.fire({
+            title: '📈 Recargo por Libreta',
+            html: `Monto base: <b>$${total.toLocaleString('es-AR', {minimumFractionDigits: 2})}</b><br><br>Ingresa el % de recargo (ej: 0, 10, 15, 20, 39):`,
+            input: 'number',
+            inputValue: 0,
+            inputAttributes: { min: 0, max: 200, step: 'any' },
+            showCancelButton: true,
+            confirmButtonText: 'Confirmar y Cobrar',
+            cancelButtonText: 'Cancelar',
+            preConfirm: (value) => {
+                if (value < 0) Swal.showValidationMessage('El porcentaje no puede ser negativo');
+                return parseFloat(value) || 0;
+            }
+        });
+
+        if (!isConfirmed) return;
+
+        porcentajeRecargo = recargoIngresado;
+
+        if (porcentajeRecargo > 0) {
+            montoRecargo = (total * porcentajeRecargo) / 100;
+            total = total + montoRecargo;
+        }
+
+        if ((clienteSeleccionado.currentBalance + total) > clienteSeleccionado.creditLimit) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Límite de Crédito Excedido',
+                text: `El cliente no puede deber más de $${clienteSeleccionado.creditLimit}. Con recargo el total queda en $${total.toFixed(2)}`
+            });
+            return;
+        }
+    }
+
+    // LECTURA DEL ESTADO FISCAL
+    const configLocal = JSON.parse(localStorage.getItem('config_comercio') || localStorage.getItem('DATOS_EMPRESA') || '{}');
+    const esFiscalActivo = (DATOS_EMPRESA && (DATOS_EMPRESA.hasTaxData === true || DATOS_EMPRESA.hasTaxData === "true")) ||
+                           (configLocal.hasTaxData === true || configLocal.hasTaxData === "true");
+
+    const saleRequestDTO = {
+        items: CARRITO.map(item => ({
+            productId: item.id,
+            quantity: item.cantidad,
+            price: item.price
+        })),
+        total: total,
+        discount: DESCUENTO_FINAL_PESOS || 0,
+        surcharge: montoRecargo,
+        surchargeRate: porcentajeRecargo,
+        paymentMethod: METODO_PAGO,
+        customerId: clienteSeleccionado ? clienteSeleccionado.id : null,
+        isFiscal: esFiscalActivo // 👈 AQUÍ ESTÁ EL CAMBIO CLAVE
+    };
+
+    const btnFinalizar = document.querySelector('.btn-primary.btn-lg.w-100.py-3');
+    if (btnFinalizar) btnFinalizar.disabled = true;
+
+    try {
+        const res = await apiFetch(API_BASE, {
+            method: 'POST',
+            body: JSON.stringify(saleRequestDTO)
+        });
+
+        let data = {};
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            data = await res.json();
+        }
+
+        if (res.ok) {
+            ULTIMA_VENTA_EXITOSA = data;
+            if(window.sndSuccess) window.sndSuccess.play().catch(()=>{});
+
+            Swal.fire({
+                icon: 'success',
+                title: '¡Venta Realizada!',
+                text: METODO_PAGO === 'CUENTA_CORRIENTE'
+                    ? `Cargado $${total.toLocaleString('es-AR', {minimumFractionDigits: 2})} a la cuenta de ${clienteSeleccionado.name} (Op #${data.id})`
+                    : `Operación #${data.id || 'Exitosa'}`,
+                showCancelButton: true,
+                confirmButtonText: '<i class="bi bi-printer"></i> Imprimir Ticket',
+                cancelButtonText: 'No imprimir',
+                confirmButtonColor: '#28a745',
+                cancelButtonColor: '#6c757d',
+                reverseButtons: true
+            }).then((result) => {
+                if (result.isConfirmed && typeof imprimirTicket === 'function') {
+                    imprimirTicket(data);
+                }
+            });
+
+            CARRITO = [];
+            clienteSeleccionado = null;
+            const infoCli = document.getElementById('infoClienteSeleccionado');
+            if(infoCli) infoCli.classList.add('d-none');
+            document.getElementById('pagaCon').value = '';
+            const inputDesc = document.getElementById('inputDescuento');
+            if (inputDesc) inputDesc.value = '';
+
+            renderizarCarrito();
+            await cargarProductos();
+
+        } else {
+            throw new Error(data.message || "Error al procesar la venta");
+        }
+    } catch (err) {
+        console.error("Error en finalizarVenta:", err);
+        if(window.sndError) window.sndError.play().catch(()=>{});
+        Swal.fire('Error', err.message, 'error');
+    } finally {
+        if (btnFinalizar) btnFinalizar.disabled = false;
+        const buscador = document.getElementById('buscadorVenta');
+        if(buscador) buscador.focus();
+    }
+}
+
+function reimprimirUltimoTicket() {
+    if (!ULTIMA_VENTA_EXITOSA) {
+        Swal.fire('Atención', 'No hay ninguna venta reciente en esta sesión para reimprimir.', 'info');
+        return;
+    }
+
+    if (typeof imprimirTicket === 'function') {
+        imprimirTicket(ULTIMA_VENTA_EXITOSA);
+    } else {
+        console.error("La función imprimirTicket no está definida.");
+    }
+}
+
+// --- FUNCIÓN DE IMPRESIÓN DINÁMICA ---
+async function imprimirTicket(venta) {
+    const ventana = window.open('', 'PRINT', 'height=700,width=400');
+
+    if (!ventana) {
+        Swal.fire({ icon: 'warning', title: 'Popup bloqueado', text: 'Permití las ventanas emergentes.' });
+        return;
+    }
+
+    const infoEmpresa = (typeof DATOS_EMPRESA !== 'undefined' && DATOS_EMPRESA !== null) ? DATOS_EMPRESA : {};
+    const fiscalActivo = infoEmpresa.hasTaxData === true || infoEmpresa.hasTaxData === "true";
+
+    const nombreLocal = (infoEmpresa.name || venta.companyName || 'MI NEGOCIO').toUpperCase();
+    const direccionLocal = infoEmpresa.address || venta.companyAddress || '';
+    const telefonoLocal = infoEmpresa.phone || venta.companyPhone || '';
+    const emailLocal = infoEmpresa.email || venta.companyEmail || '';
+    const mensajePie = infoEmpresa.ticketMessage || venta.ticketMessage || '¡Gracias por su compra!';
+
+    const cuitLocal = infoEmpresa.taxId || infoEmpresa.cuit || venta.companyCuit || '';
+    const iibbLocal = infoEmpresa.iibb || venta.companyIibb || '';
+    const condicionIva = (infoEmpresa.condicionIva || 'RESPONSABLE MONOTRIBUTO').toUpperCase();
+
+    let inicioActividades = infoEmpresa.inicioActividades || infoEmpresa.inicioAct || '';
+    if (inicioActividades.includes('-')) {
+        const parts = inicioActividades.split('-');
+        inicioActividades = `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    const tipoComprobante = fiscalActivo
+        ? (venta.tipoComprobante || infoEmpresa.tipoComprobante || 'FACTURA C').toUpperCase()
+        : (venta.tipoComprobante || 'TICKET INTERNO');
+
+    const cae = venta.cae || infoEmpresa.caePrueba || '';
+    const caeVto = venta.caeVto || infoEmpresa.caeVtoPrueba || '';
+
+    const nroComprobante = venta.nroComprobante || `00001-${String(venta.id || 1).padStart(8, '0')}`;
+    const fechaVenta = venta.saleDate ? new Date(venta.saleDate).toLocaleString('es-AR') : new Date().toLocaleString('es-AR');
+    const metodoPago = (venta.paymentMethod || 'EFECTIVO').replace('_', ' ').toUpperCase();
+
+    const nombreCliente = (venta.clienteNombre || 'CONSUMIDOR FINAL').toUpperCase();
+    const cuitCliente = venta.clienteCuit || '';
+
+    // Parseo seguro de montos para evitar concatenaciones o NaN
+    const recargoMonto = parseFloat(venta.surcharge) || 0;
+    const recargoPorcentaje = parseFloat(venta.surchargeRate) || 0;
+    const descuentoMonto = parseFloat(venta.discount) || 0;
+    const totalFinal = parseFloat(venta.total) || 0;
+    const subtotalProductos = (totalFinal - recargoMonto) + descuentoMonto;
+
+    let qrText = '';
+    if (fiscalActivo && cae) {
+        // Limpieza de CUIT para evitar Integer Overflow de JavaScript
+        const cuitLimpio = cuitLocal.replace(/\D/g, '');
+        const cuitClienteLimpio = cuitCliente.replace(/\D/g, '');
+
+        const datosQr = {
+            ver: 1,
+            fecha: fechaVenta.split(' ')[0],
+            cuit: Number(cuitLimpio),
+            ptoVta: 1,
+            tipoCmp: tipoComprobante.includes('A') ? 1 : 11,
+            nroCmp: venta.id || 1,
+            importe: totalFinal,
+            moneda: "ARS",
+            ctz: 1,
+            tipoDocRec: cuitClienteLimpio ? 80 : 99,
+            nroDocRec: cuitClienteLimpio ? Number(cuitClienteLimpio) : 0,
+            tipoCodAut: "E",
+            codAut: Number(cae) || 0
+        };
+        qrText = `https://www.afip.gob.ar/fe/qr/?p=${btoa(JSON.stringify(datosQr))}`;
+    }
+
+    ventana.document.write(`
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <title>Ticket #${venta.id || ''}</title>
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+                    @page { margin: 0; }
+                    body {
+                        font-family: 'Inter', sans-serif;
+                        width: 58mm;
+                        padding: 10px;
+                        margin: 0;
+                        color: #1e293b;
+                        background: #fff;
+                        line-height: 1.2;
+                    }
+                    .center { text-align: center; }
+                    .ticket-header { border-bottom: 1px dashed #cbd5e1; padding-bottom: 8px; margin-bottom: 8px; }
+                    .business-name { font-weight: 900; font-size: 15px; margin: 3px 0; text-transform: uppercase; color: #0f172a; }
+                    .small-info { font-size: 10px; color: #475569; margin: 2px 0; }
+                    .fiscal-header { font-size: 9px; color: #334155; text-align: left; background: #f8fafc; padding: 4px; border-radius: 4px; margin-top: 5px; }
+                    .item-row { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
+                    .item-name { font-weight: 700; text-transform: uppercase; flex: 1; padding-right: 5px; }
+                    .line { border-top: 1px dashed #cbd5e1; margin: 8px 0; }
+                    .total-container {
+                        border-top: 2px solid #0f172a;
+                        margin-top: 8px;
+                        padding-top: 8px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    }
+                    .total-label { font-weight: 900; font-size: 16px; color: #0f172a; }
+                    .total-amount { font-weight: 900; font-size: 16px; color: #2563eb; }
+                    .arca-container { border-top: 1px solid #0f172a; margin-top: 12px; padding-top: 10px; text-align: center; }
+                    .arca-logo { font-weight: 900; font-size: 12px; letter-spacing: 2px; color: #0f172a; margin-bottom: 5px; }
+                    .qr-box { display: flex; justify-content: center; margin: 8px 0; }
+                    .cae-info { font-size: 9px; font-weight: 700; text-align: left; color: #0f172a; margin-top: 4px; }
+                    .ticket-footer { text-align: center; margin-top: 10px; border-top: 1px dashed #cbd5e1; padding-top: 10px; }
+                    .msg-pie { font-style: italic; font-size: 11px; color: #475569; margin-bottom: 8px; display: block; }
+                    .payment-method { font-weight: 800; font-size: 10px; color: #0f172a; border: 1px solid #e2e8f0; padding: 3px; display: inline-block; border-radius: 4px; margin-bottom: 8px; }
+                    .powered { font-size: 7px; font-weight: 700; opacity: 0.4; margin-top: 8px; letter-spacing: 1px; }
+                    i.bi-shop { display: block; font-size: 20px; color: #2563eb; opacity: 0.5; }
+                </style>
+            </head>
+            <body>
+                <div class="ticket-header center">
+                    <i class="bi bi-shop"></i>
+                    <div class="business-name">${nombreLocal}</div>
+                    ${direccionLocal ? `<div class="small-info">${direccionLocal}</div>` : ''}
+                    ${telefonoLocal ? `<div class="small-info">Tel: ${telefonoLocal}</div>` : ''}
+                    ${emailLocal ? `<div class="small-info">Email: ${emailLocal}</div>` : ''}
+
+                    ${fiscalActivo ? `
+                        <div class="fiscal-header">
+                            ${cuitLocal ? `<div><strong>CUIT:</strong> ${cuitLocal}</div>` : ''}
+                            ${iibbLocal ? `<div><strong>Ing. Brutos:</strong> ${iibbLocal}</div>` : ''}
+                            ${inicioActividades ? `<div><strong>Inic. Act.:</strong> ${inicioActividades}</div>` : ''}
+                            ${condicionIva ? `<div><strong>Cond. IVA:</strong> ${condicionIva}</div>` : ''}
+                        </div>
+                    ` : ''}
+
+                    <div class="line"></div>
+                    <div class="small-info"><strong>${tipoComprobante} N° ${nroComprobante}</strong></div>
+                    <div class="small-info">Fecha: ${fechaVenta}</div>
+                    <div class="small-info" style="text-align: left; margin-top: 4px;"><strong>A:</strong> ${nombreCliente} ${cuitCliente ? `(CUIT: ${cuitCliente})` : ''}</div>
+                </div>
+
+                <div class="ticket-body">
+                    ${venta.items ? venta.items.map(item => {
+                        const subtotalItem = item.subtotal !== undefined ? item.subtotal : ((item.price || item.precio || 0) * item.quantity);
+                        return `
+                            <div class="item-row">
+                                <span class="item-name">${item.quantity}x ${(item.productName || item.nombre || '').toUpperCase()}</span>
+                                <span style="font-weight:700;">$${parseFloat(subtotalItem).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                            </div>
+                        `;
+                    }).join('') : ''}
+
+                    ${descuentoMonto > 0 ? `
+                        <div class="line"></div>
+                        <div class="item-row" style="color: #dc3545;">
+                            <span class="item-name">DESCUENTO:</span>
+                            <span>-$${descuentoMonto.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                        </div>
+                    ` : ''}
+
+                    ${recargoMonto > 0 ? `
+                        <div class="line"></div>
+                        <div class="item-row" style="color: #6c757d; font-size: 9px;">
+                            <span class="item-name">SUBTOTAL PRODUCTOS:</span>
+                            <span>$${subtotalProductos.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                        </div>
+                        <div class="item-row" style="color: #d97706; font-weight: bold;">
+                            <span class="item-name">RECARGO LIBRETA (${recargoPorcentaje}%):</span>
+                            <span>+$${recargoMonto.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                        </div>
+                    ` : ''}
+
+                    <div class="total-container">
+                        <span class="total-label">TOTAL</span>
+                        <span class="total-amount">$${totalFinal.toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    </div>
+                </div>
+
+                ${(fiscalActivo && cae) ? `
+                    <div class="arca-container">
+                        <div class="arca-logo">ARCA / AFIP</div>
+                        <div class="small-info" style="font-size: 8px;">Comprobante Autorizado Electrónicamente</div>
+                        <div class="qr-box" id="qrcode"></div>
+                        <div class="cae-info">CAE: ${cae}</div>
+                        <div class="cae-info">Vto. CAE: ${caeVto}</div>
+                    </div>
+                ` : ''}
+
+                <div class="ticket-footer">
+                    <div class="payment-method">FORMA DE PAGO: ${metodoPago}</div>
+                    <span class="msg-pie">${mensajePie}</span>
+                    <div class="powered">BAEZPOS v3.5 - POWERED BY BAEZ ALEXANDER</div>
+                </div>
+
+                <script>
+                    if (${Boolean(fiscalActivo && cae)}) {
+                        new QRCode(document.getElementById("qrcode"), {
+                            text: "${qrText}",
+                            width: 90,
+                            height: 90,
+                            colorDark : "#000000",
+                            colorLight : "#ffffff",
+                            correctLevel : QRCode.CorrectLevel.M
+                        });
+                    }
+
+                    setTimeout(() => {
+                        window.print();
+                        window.close();
+                    }, 500);
+                </script>
+            </body>
+        </html>
+    `);
+    ventana.document.close();
+}
+
+// Captura de foco sin interrupciones para inputs habilitados
+document.addEventListener('keydown', (e) => {
+    const buscador = document.getElementById('buscadorVenta');
+    const idActivo = document.activeElement ? document.activeElement.id : '';
+
+    const inputsLibres = ['pagaCon', 'inputDescuento', 'buscarClientePos', 'manualNombreBusqueda', 'manualPrecio'];
+
+    if (!inputsLibres.includes(idActivo)) {
+        if (e.key.length === 1 && !e.ctrlKey && !e.altKey) {
+            if (document.activeElement !== buscador && buscador) {
+                buscador.focus();
+            }
+        }
+    }
+});
+
 function agregarProductoManual() {
     const productosSueltos = PRODUCTOS_DB.filter(p => parseFloat(p.price) === 0);
 
     if (productosSueltos.length === 0) {
-        Swal.fire('Atención', 'No hay productos con precio $0.', 'warning');
+        Swal.fire('Atención', 'No hay productos configurados con precio $0.', 'warning');
         return;
     }
 
@@ -720,7 +847,7 @@ function agregarProductoManual() {
                             btn.onclick = () => {
                                 inputBusqueda.value = p.name.toUpperCase();
                                 contenedorSugerencias.classList.add('d-none');
-                                inputPrecio.focus(); // Salto automático al precio
+                                inputPrecio.focus();
                             };
                             contenedorSugerencias.appendChild(btn);
                         });
@@ -732,7 +859,6 @@ function agregarProductoManual() {
                 }
             });
 
-            // Cerrar sugerencias si hace clic afuera
             document.addEventListener('click', (e) => {
                 if (e.target !== inputBusqueda) contenedorSugerencias.classList.add('d-none');
             });
@@ -771,9 +897,7 @@ function agregarProductoManual() {
         }
     });
 }
-/**
- * Dibuja la lista de productos encontrados debajo del buscador
- */
+
 function renderizarSugerencias(productos) {
     const div = document.getElementById('listaSugerencias');
     if (productos.length === 0) {
@@ -781,7 +905,6 @@ function renderizarSugerencias(productos) {
         return;
     }
 
-    // Generamos el HTML para cada sugerencia
     div.innerHTML = productos.map(p => `
         <button type="button"
                 class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3 border-bottom shadow-sm"
@@ -806,17 +929,12 @@ function renderizarSugerencias(productos) {
     div.style.display = 'block';
 }
 
-/**
- * Agrega el producto seleccionado al carrito y limpia la interfaz de búsqueda
- */
 function seleccionarProducto(p) {
-
-   if (sistemaBloqueado) return;
+    if (sistemaBloqueado) return;
 
     const itemEnCarrito = CARRITO.find(item => item.id === p.id);
     const cantActual = itemEnCarrito ? itemEnCarrito.cantidad : 0;
 
-    // 1. Validar Stock
     if (p.stock <= cantActual) {
         if(sndError) sndError.play().catch(()=>{});
         Swal.fire({
@@ -829,7 +947,6 @@ function seleccionarProducto(p) {
             showConfirmButton: false
         });
     } else {
-        // 2. Feedback Sonoro y Lógica de Carrito
         if(sndSuccess) sndSuccess.play().catch(()=>{});
 
         if (itemEnCarrito) {
@@ -846,17 +963,15 @@ function seleccionarProducto(p) {
         renderizarCarrito();
     }
 
-    // 3. Limpiar Buscador y Ocultar Sugerencias
     const buscador = document.getElementById('buscadorVenta');
     const sugerencias = document.getElementById('listaSugerencias');
 
     buscador.value = '';
     if (sugerencias) sugerencias.style.display = 'none';
 
-    // Devolvemos el foco al buscador para la siguiente venta/escaneo
     setTimeout(() => buscador.focus(), 50);
 }
-// Función nueva para elegir el cliente de la lista
+
 function seleccionarCliente(c) {
     clienteSeleccionado = c;
     document.getElementById('idClienteSeleccionado').value = c.id;
@@ -866,56 +981,16 @@ function seleccionarCliente(c) {
     document.getElementById('sugerenciasClientes').style.display = 'none';
     document.getElementById('buscarClientePos').value = '';
 
-    // Dentro del buscador de clientes:
-    const colorSaldo = c.currentBalance >= c.creditLimit ? 'text-danger' : 'text-success';
-    sugCli.innerHTML = filtrados.map(c => `
-        <button ...>
-            <span>${c.name}</span>
-            <span class="${colorSaldo}">$${c.currentBalance.toFixed(2)}</span>
-        </button>
-    `).join('');
-
-    // OPCIONAL: Devolver el foco al buscador de productos para seguir la venta
     document.getElementById('buscadorVenta').focus();
 }
 
-// EL GUARDIÁN QUE PREGUNTA AL SERVIDOR
 async function chequearEstadoLicencia() {
-    console.log("🔍 El Guardián de Alexander está preguntando al servidor...");
-    if (sistemaBloqueado) return;
-
-    try {
-        const res = await fetch('http://localhost:8080/api/v1/admin/my-company/status', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        console.log("📡 Respuesta del servidor - Status:", res.status);
-
-        if (res.status === 403) {
-            console.log("❌ ¡BLOQUEO DETECTADO (403)! Lanzando cartel...");
-            mostrarCartelBloqueo();
-            return;
-        }
-
-        if (res.ok) {
-            const data = await res.json();
-            console.log("✅ Datos recibidos:", data);
-
-            // Forzamos el cartel si los datos dicen que no está activo
-            if (data.active === false || data.vencido === true) {
-                console.log("⚠️ Los datos indican cuenta inactiva o vencida.");
-                mostrarCartelBloqueo();
-            }
-        }
-    } catch (err) {
-        console.error("🚨 Error de conexión al chequear licencia:", err);
-    }
+    return;
 }
 
 function mostrarCartelBloqueo() {
     sistemaBloqueado = true;
 
-    // Bloqueo total con SweetAlert
     Swal.fire({
         title: '¡SISTEMA SUSPENDIDO!',
         html: `Tu suscripción ha vencido o tu cuenta está inactiva.<br><b>Contacta a Alexander Báez para habilitar el servicio.</b>`,
@@ -927,30 +1002,12 @@ function mostrarCartelBloqueo() {
     }).then((result) => {
         if (result.isConfirmed) {
             window.open(`https://wa.me/${MI_WHATSAPP}?text=Hola Alexander, mi sistema aparece como suspendido.`);
-            setTimeout(mostrarCartelBloqueo, 500); // Re-lanzar para que no se escape
+            setTimeout(mostrarCartelBloqueo, 500);
         }
     });
 
-    // Limpiamos pantalla por seguridad
     CARRITO = [];
     renderizarCarrito();
 }
 
-// Ejecutar cada 30 segundos
 setInterval(chequearEstadoLicencia, 30000);
-
-
-function cerrarSesion() {
-    Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Salir',
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            localStorage.clear();
-            window.location.href = 'login.html';
-        }
-    });
-    }

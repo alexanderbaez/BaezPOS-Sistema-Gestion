@@ -9,10 +9,18 @@ public record SaleResponseDTO(
         LocalDateTime saleDate,
         BigDecimal total,
         BigDecimal discount,
-        String paymentMethod, // <--- Debe estar en esta posición
+        BigDecimal surcharge,     // <--- NUEVO
+        BigDecimal surchargeRate, // <--- NUEVO
+        String paymentMethod,
         String userName,
         String companyName,
-        String taxId,
-        String address,
-        List<SaleItemResponseDTO> items
+        String companyCuit,
+        String companyAddress,
+        List<SaleItemResponseDTO> items,
+
+        // Campos fiscales ARCA
+        String cae,
+        String caeVto,
+        String tipoComprobante,
+        String nroComprobante
 ) {}

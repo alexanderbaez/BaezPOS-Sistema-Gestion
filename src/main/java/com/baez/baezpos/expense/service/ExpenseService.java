@@ -6,7 +6,6 @@ import com.baez.baezpos.expense.entity.Expense;
 import java.util.List;
 
 public interface ExpenseService {
-
-    Expense createExpense(ExpenseRequestDTO dto, Long companyId);
-    List<Expense> getAllByCompany(Long companyId);
+    Expense createExpense(ExpenseRequestDTO dto);
+    List<Expense> getAllExpenses();
 }

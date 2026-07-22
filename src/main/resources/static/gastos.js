@@ -1,77 +1,63 @@
-// Configuración de API - Asegurate de que coincida con tu backend de Spring Boot
-const API_EXPENSES = '/api/v1/expenses';
-const token = localStorage.getItem('baezpos_token');
+// ==========================================
+// 1. CONFIGURACIÓN Y VARIABLES GLOBALES
+// ==========================================
+const API_EXPENSES = '/expenses';
 
+// ==========================================
+// 2. INICIALIZACIÓN
+// ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    if (!token) {
-        window.location.href = 'login.html';
-        return;
-    }
-
-    // Cargamos los gastos al iniciar
+    // Auth manejado globalmente.
     cargarGastos();
 
     // Listener para el formulario
-    document.getElementById('formGasto').addEventListener('submit', guardarGasto);
+    const formGasto = document.getElementById('formGasto');
+    if (formGasto) {
+        formGasto.addEventListener('submit', guardarGasto);
+    }
 });
 
-function cargarDatosPerfil() {
-    try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const nombreUsuario = payload.sub || "Usuario";
+// ==========================================
+// 3. LÓGICA DE DATOS (API)
+// ==========================================
 
-        // 1. Seteamos el nombre en el texto
-        document.getElementById('userName').innerText = nombreUsuario;
-
-        // 2. NUEVO: Seteamos la inicial en el avatar del Nav
-        const elInitial = document.getElementById('userInitial');
-        if (elInitial) {
-            elInitial.innerText = nombreUsuario.charAt(0).toUpperCase();
-        }
-
-        // 3. Seteamos el nombre de la empresa
-        if(payload.companyName) {
-            document.getElementById('companyName').innerText = payload.companyName;
-        }
-
-    } catch (e) {
-        console.error("Error perfil:", e);
-    }
-}
-
+/**
+ * Obtiene la lista de gastos desde el backend
+ */
 async function cargarGastos() {
     try {
-        const res = await fetch(API_EXPENSES, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
+        const res = await apiFetch(API_EXPENSES);
 
-        if (res.status === 401) { cerrarSesion(); return; }
         if (!res.ok) throw new Error("Error al obtener la lista de gastos");
 
         const gastos = await res.json();
         renderizarGastos(gastos);
     } catch (err) {
         console.error("Error cargando gastos:", err);
-        // Opcional: Mostrar error en la tabla si falla
-        document.getElementById('listaGastos').innerHTML = '<tr><td colspan="4" class="text-center text-danger p-4">Error al conectar con el servidor.</td></tr>';
+        const tbody = document.getElementById('listaGastos');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger p-4"><i class="bi bi-exclamation-triangle me-2"></i> Error al conectar con el servidor.</td></tr>';
+        }
     }
 }
 
+/**
+ * Dibuja la tabla de gastos
+ */
 function renderizarGastos(gastos) {
     const tbody = document.getElementById('listaGastos');
+    if (!tbody) return;
+
     tbody.innerHTML = '';
 
-    if (gastos.length === 0) {
+    if (!gastos || gastos.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center p-5 text-muted">No hay gastos registrados en este período.</td></tr>';
         return;
     }
 
     // Ordenamos por ID descendente (más recientes arriba)
     gastos.sort((a, b) => b.id - a.id).forEach(g => {
-        // Formatear fecha
+        // Formatear fecha para Argentina
         const fechaObj = g.date ? new Date(g.date) : new Date();
         const fechaFormateada = fechaObj.toLocaleDateString('es-AR', {
             day: '2-digit',
@@ -79,93 +65,110 @@ function renderizarGastos(gastos) {
             year: 'numeric',
             hour: '2-digit',
             minute: '2-digit'
-        });
+        }) + 'hs';
 
-        // Color de badge por categoría
+        // Estilos de Badge por categoría
         let badgeClass = 'bg-light text-dark border';
         if (g.category === 'PROVEEDOR') badgeClass = 'bg-primary-subtle text-primary border-primary';
         if (g.category === 'SERVICIOS') badgeClass = 'bg-warning-subtle text-warning-emphasis border-warning';
         if (g.category === 'SUELDOS') badgeClass = 'bg-info-subtle text-info-emphasis border-info';
+        if (g.category === 'MANTENIMIENTO') badgeClass = 'bg-secondary-subtle text-secondary-emphasis border-secondary';
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td class="ps-4 text-muted" style="font-size: 13px;">${fechaFormateada}</td>
-            <td class="fw-bold text-dark">${g.description.toUpperCase()}</td>
+            <td class="fw-bold text-dark text-uppercase">${g.description}</td>
             <td><span class="badge ${badgeClass}" style="font-size: 11px;">${g.category}</span></td>
-            <td class="text-end pe-4 fw-bold text-danger">-$${g.amount.toFixed(2)}</td>
+            <td class="text-end pe-4 fw-black text-danger" style="font-size: 16px;">
+                -$${g.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+            </td>
         `;
         tbody.appendChild(tr);
     });
 }
 
+/**
+ * Envía un nuevo gasto al servidor
+ */
 async function guardarGasto(e) {
     e.preventDefault();
 
-    // Bloqueamos el botón para evitar doble click
+    const montoInput = document.getElementById('montoGasto');
+    const descInput = document.getElementById('descGasto');
+    const catInput = document.getElementById('catGasto');
+
+    const monto = parseFloat(montoInput.value);
+
+    // Validación de seguridad
+    if (isNaN(monto) || monto <= 0) {
+        return Swal.fire({
+            icon: 'warning',
+            title: 'Monto inválido',
+            text: 'Por favor, ingresá un monto mayor a cero.',
+            confirmButtonColor: '#dc3545'
+        });
+    }
+
+    // Bloqueamos el botón para evitar duplicados
     const btnGuardar = e.target.querySelector('button[type="submit"]');
+    const originalText = btnGuardar.innerHTML;
     btnGuardar.disabled = true;
     btnGuardar.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Guardando...';
 
     const nuevoGasto = {
-        description: document.getElementById('descGasto').value,
-        amount: parseFloat(document.getElementById('montoGasto').value),
-        category: document.getElementById('catGasto').value,
-        date: new Date().toISOString() // Enviamos la fecha actual en formato ISO
+        description: descInput.value.trim(),
+        amount: monto,
+        category: catInput.value,
+        date: new Date().toISOString()
     };
 
     try {
-        const res = await fetch(API_EXPENSES, {
+        const res = await apiFetch(API_EXPENSES, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
             body: JSON.stringify(nuevoGasto)
         });
 
         if (res.ok) {
-            Swal.fire({
-                icon: 'success',
-                title: 'Gasto registrado correctamente',
-                showConfirmButton: false,
-                timer: 1500,
+            // Notificación rápida (Toast)
+            const Toast = Swal.mixin({
                 toast: true,
-                position: 'top-end'
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 2000,
+                timerProgressBar: true
             });
 
+            Toast.fire({
+                icon: 'success',
+                title: 'Gasto registrado correctamente'
+            });
+
+            // Limpiar formulario
             document.getElementById('formGasto').reset();
 
-            // Cerramos el modal de Bootstrap
+            // Cerrar el modal (Bootstrap 5)
             const modalEl = document.getElementById('modalNuevoGasto');
             const modalInstance = bootstrap.Modal.getInstance(modalEl);
-            modalInstance.hide();
+            if (modalInstance) {
+                modalInstance.hide();
+            }
 
-            // Recargamos la lista
+            // Recargar la lista para mostrar el nuevo gasto
             cargarGastos();
         } else {
             const errorData = await res.json();
-            throw new Error(errorData.message || "No se pudo guardar el gasto");
+            throw new Error(errorData.message || "No se pudo procesar el registro.");
         }
     } catch (err) {
-        Swal.fire('Error', err.message, 'error');
+        Swal.fire({
+            icon: 'error',
+            title: 'Error al guardar',
+            text: err.message,
+            confirmButtonColor: '#dc3545'
+        });
     } finally {
-        // Rehabilitamos el botón
+        // Restaurar botón
         btnGuardar.disabled = false;
-        btnGuardar.innerHTML = 'GUARDAR GASTO';
+        btnGuardar.innerHTML = originalText;
     }
-}
-
-function cerrarSesion() {
-    Swal.fire({
-        title: '¿Cerrar sesión?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Salir',
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            localStorage.clear();
-            window.location.href = 'login.html';
-        }
-    });
 }

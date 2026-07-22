@@ -6,80 +6,39 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
   <style>
+    :root { --sidebar-width: 250px; --primary-color: #1e3a8a; --primary-blue: #0d6efd; }
+    body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; overflow-x: hidden; }
 
-    :root { --sidebar-width: 250px; --primary-blue: #0d6efd; }
-    body { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
-
-    #sidebar {
-      width: var(--sidebar-width);
-      position: fixed;
-      top: 0;
-      left: 0;
-      z-index: 1000;
-      background-color: #212529;
-    }
-
-    .main-content {
+    /* Contenedor principal alineado al sidebar dinámico */
+    #content {
       margin-left: var(--sidebar-width);
       padding: 30px;
       width: calc(100% - var(--sidebar-width));
-    }
-
-    .hover-menu {
-        border-left: 4px solid transparent;
-        transition: 0.2s;
-    }
-
-    .hover-menu:hover {
-      background-color: rgba(255, 255, 255, 0.1);
-      border-left: 4px solid var(--primary-blue) !important;
-    }
-
-    .nav-link.active-page {
-      background-color: var(--primary-blue);
-      font-weight: bold;
-      color: white !important;
+      transition: all 0.3s;
+      min-height: 100vh;
     }
 
     .card { border-radius: 12px; border: none; }
     .table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d; }
     .badge-method { font-size: 11px; font-weight: 700; }
     .dashed { border-top: 2px dashed #dee2e6; opacity: 1; }
+    .status-anulada { opacity: 0.6; background-color: #fceaea !important; }
+
+    /* Comportamiento responsivo unificado para el sidebar dinámico */
+    @media (max-width: 768px) {
+        #sidebar { left: calc(var(--sidebar-width) * -1) !important; }
+        #content { margin-left: 0; width: 100%; }
+        #sidebar.active { left: 0 !important; }
+    }
+
+    .nav-link.active-page { background-color: var(--primary-blue) !important; font-weight: bold; color: white !important; }
   </style>
 </head>
 <body>
 
-<nav id="sidebar" class="bg-dark vh-100 shadow">
-  <div class="p-4 text-center">
-    <h3 class="text-white fw-bold">BaezPOS</h3>
-    <hr class="text-white">
-  </div>
-  <div class="nav flex-column px-3 gap-1">
-    <a href="dashboard.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-speedometer2 me-2"></i> Dashboard
-    </a>
-    <a href="productos.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-box-seam me-2"></i> Productos
-    </a>
-    <a href="ventas.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-cart me-2"></i> Punto de Venta
-    </a>
-    <a href="clientes.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-people me-2"></i> Clientes (Libreta)
-    </a>
-    <a href="historial.html" class="nav-link text-white rounded p-2">
-      <i class="bi bi-people me-2"></i> Historial de Ventas
-    </a>
-    <a href="perfil.html" class="nav-link text-white rounded p-2 active">
-      <i class="bi bi-shop me-2"></i> Mi Negocio
-    </a>
-    <a href="#" class="nav-link text-danger mt-5 p-2" onclick="cerrarSesion()">
-      <i class="bi bi-box-arrow-left me-2"></i> Salir
-    </a>
-  </div>
-</nav>
+<div id="sidebar-container"></div>
 
-<div class="main-content">
+<div id="content">
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
       <h2 class="fw-bold text-dark mb-0"><i class="bi bi-clock-history text-primary"></i> Historial de Ventas</h2>
@@ -99,25 +58,46 @@
   </div>
 
   <div class="row g-3 mb-4">
-    <div class="col-md-3">
+    <div class="col-md-4">
       <div class="card shadow-sm p-3 text-center border-start border-4 border-success">
         <small class="text-muted fw-bold">HOY EFECTIVO</small>
         <h4 class="mb-0 fw-bold text-success" id="resumenEfectivo">$0.00</h4>
       </div>
     </div>
-    <div class="col-md-3">
+    <div class="col-md-4">
       <div class="card shadow-sm p-3 text-center border-start border-4 border-primary">
         <small class="text-muted fw-bold">HOY TRANSF/QR</small>
         <h4 class="mb-0 fw-bold text-primary" id="resumenTransf">$0.00</h4>
       </div>
     </div>
+    <div class="col-md-4">
+      <div class="card shadow-sm p-3 text-center border-start border-4 border-warning">
+        <small class="text-muted fw-bold">HOY EN LIBRETA</small>
+        <h4 class="mb-0 fw-bold text-warning" id="resumenLibreta">$0.00</h4>
+      </div>
+    </div>
   </div>
 
-  <div class="d-flex gap-2 mb-3">
-    <input type="date" id="fechaDesde" class="form-control form-control-sm">
-    <input type="date" id="fechaHasta" class="form-control form-control-sm">
-    <button class="btn btn-primary btn-sm" onclick="cargarVentasFiltradas()">
-      <i class="bi bi-filter"></i> Filtrar
+  <div class="d-flex flex-wrap gap-2 mb-3 bg-white p-3 rounded-4 shadow-sm align-items-center">
+    <div class="d-flex align-items-center gap-2">
+      <label class="small fw-bold text-muted text-uppercase">Desde:</label>
+      <input type="date" id="fechaDesde" class="form-control form-control-sm border-0 bg-light">
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <label class="small fw-bold text-muted text-uppercase">Hasta:</label>
+      <input type="date" id="fechaHasta" class="form-control form-control-sm border-0 bg-light">
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <label class="small fw-bold text-muted text-uppercase">Pago:</label>
+      <select id="filtroMetodo" class="form-select form-select-sm border-0 bg-light" style="width: 150px;" onchange="cargarVentasFiltradas()">
+        <option value="TODOS">Todos</option>
+        <option value="EFECTIVO">Efectivo</option>
+        <option value="TRANSFERENCIA">Transferencia</option>
+        <option value="CUENTA_CORRIENTE">Libreta</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-sm px-3 shadow-sm" onclick="cargarVentas()">
+      <i class="bi bi-search me-1"></i> Buscar
     </button>
   </div>
 
@@ -129,7 +109,7 @@
           <tr>
             <th class="ps-4">ID</th>
             <th>Fecha y Hora</th>
-            <th>Cajero</th>
+            <th>Cliente / Productos</th>
             <th>Método Pago</th>
             <th class="text-end">Descuento</th>
             <th class="text-end">Total Final</th>
@@ -184,6 +164,10 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+<script src="sidebar.js"></script>
+
+<script src="auth.js"></script>
 <script src="historial.js"></script>
 </body>
 </html>

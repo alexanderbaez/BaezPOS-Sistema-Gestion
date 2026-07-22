@@ -11,9 +11,9 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "customers")
-@Data // <--- Esto genera automáticamente los Getters y Setters que te faltan
-@NoArgsConstructor // Genera constructor vacío requerido por JPA
-@AllArgsConstructor // Genera constructor con todos los campos
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class Customer {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -21,13 +21,8 @@ public class Customer {
 
     @Column(nullable = false)
     private String name;
-
     private String phone;
     private String dniCuit;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "company_id", nullable = false)
-    private Company company;
 
     @Column(precision = 10, scale = 2)
     private BigDecimal currentBalance = BigDecimal.ZERO;
@@ -36,4 +31,6 @@ public class Customer {
     private BigDecimal creditLimit = BigDecimal.valueOf(10000);
 
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    // ELIMINADO: Company company
 }

@@ -32,20 +32,10 @@ public class JwtService {
     public String generateToken(User user) {
         Map<String, Object> claims = new HashMap<>();
 
-        // 1. Manejo seguro para Alexander (que no tiene empresa todavía)
-        if (user.getCompany() != null) {
-            claims.put("companyId", user.getCompany().getId());
-        } else {
-            claims.put("companyId", 0); // 0 significa "Administrador Global"
-        }
-
-        // 2. REGLA DE ORO PARA SPRING SECURITY:
-        // Los permisos deben ir en una lista llamada "authorities"
-        String finalRole = "ROLE_" + user.getRole().name();
-        claims.put("authorities", List.of(finalRole));
-
-        // 3. Clave para tu JS
+        // Solo roles y datos básicos
+        claims.put("authorities", List.of("ROLE_" + user.getRole().name()));
         claims.put("role", user.getRole().name());
+        claims.put("userId", user.getId());
 
         return Jwts.builder()
                 .setClaims(claims)
